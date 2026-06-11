@@ -1,0 +1,166 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-06-08 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "asset",
+  "asset_name",
+  "holder_type",
+  "warehouse",
+  "department",
+  "location_display",
+  "qty",
+  "rate",
+  "amount",
+  "source_type",
+  "source_id",
+  "source_row_id",
+  "posting_date",
+  "disabled"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "asset",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Asset",
+   "options": "Asset",
+   "reqd": 1
+  },
+  {
+   "fieldname": "asset_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Asset Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "holder_type",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Holder Type",
+   "options": "Warehouse\nDepartment",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.holder_type == 'Warehouse'",
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Warehouse",
+   "mandatory_depends_on": "eval:doc.holder_type == 'Warehouse'",
+   "options": "Warehouse"
+  },
+  {
+   "depends_on": "eval:doc.holder_type == 'Department'",
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Department",
+   "mandatory_depends_on": "eval:doc.holder_type == 'Department'",
+   "options": "Department"
+  },
+  {
+   "fieldname": "location_display",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Location Display",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Qty",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Rate"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "read_only": 1
+  },
+  {
+   "default": "Purchase Receipt",
+   "fieldname": "source_type",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Source Type",
+   "options": "Purchase Receipt\nMove Asset\nOpening"
+  },
+  {
+   "fieldname": "source_id",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Source ID",
+   "options": "source_type"
+  },
+  {
+   "fieldname": "source_row_id",
+   "fieldtype": "Data",
+   "label": "Source Row ID"
+  },
+  {
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "in_standard_filter": 1,
+   "label": "Posting Date"
+  },
+  {
+   "fieldname": "disabled",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "Disabled"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-06-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Fixed Asset Control",
+ "name": "Asset Bin",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "search_fields": "asset,asset_name,holder_type,location_display,source_id",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "asset"
+}

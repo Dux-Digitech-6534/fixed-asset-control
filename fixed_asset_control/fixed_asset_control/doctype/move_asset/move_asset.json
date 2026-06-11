@@ -1,0 +1,292 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-06-08 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "intro_html",
+  "naming_series",
+  "asset_details_section",
+  "posting_date",
+  "asset_details_column_break",
+  "company",
+  "section_break_qech",
+  "asset_name",
+  "asset_category",
+  "column_break_yjni",
+  "total_available_qty",
+  "from_location_section",
+  "from_location_intro_html",
+  "from_holder_type",
+  "from_warehouse",
+  "from_department",
+  "from_location_column_break",
+  "available_qty_at_source",
+  "move_qty",
+  "to_location_section",
+  "to_holder_type",
+  "to_warehouse",
+  "to_department",
+  "to_location_column_break",
+  "remarks",
+  "movement_summary_section",
+  "movement_summary_html",
+  "purchase_receipt_reference_section",
+  "purchase_receipt",
+  "selected_source_location",
+  "purchase_receipt_column_break",
+  "rate",
+  "move_qty_value",
+  "reference_note",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "intro_html",
+   "fieldtype": "HTML",
+   "options": "<div style=\"margin-bottom: 12px;\"><h3 style=\"margin: 0 0 4px;\">Move Asset</h3><p style=\"margin: 0; color: var(--text-muted);\">Select asset first, then choose which current location quantity you want to move.</p></div>"
+  },
+  {
+   "default": "MOVE-ASSET-.YYYY.-.#####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Naming Series",
+   "options": "MOVE-ASSET-.YYYY.-.#####",
+   "reqd": 1
+  },
+  {
+   "fieldname": "asset_details_section",
+   "fieldtype": "Section Break",
+   "label": "Select Asset"
+  },
+  {
+   "default": "Today",
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Posting Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "asset_details_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "asset_name",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Asset Name",
+   "options": "Asset",
+   "reqd": 1
+  },
+  {
+   "fieldname": "total_available_qty",
+   "fieldtype": "Float",
+   "label": "Total Available Qty",
+   "read_only": 1
+  },
+  {
+   "fieldname": "asset_category",
+   "fieldtype": "Data",
+   "label": "Asset Category",
+   "read_only": 1
+  },
+  {
+   "fieldname": "from_location_section",
+   "fieldtype": "Section Break",
+   "label": "Select From Location"
+  },
+  {
+   "fieldname": "from_location_intro_html",
+   "fieldtype": "HTML",
+   "options": ""
+  },
+  {
+   "fieldname": "from_holder_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "From Holder Type",
+   "options": "\nWarehouse\nDepartment",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.from_holder_type == 'Warehouse'",
+   "fieldname": "from_warehouse",
+   "fieldtype": "Link",
+   "label": "From Warehouse",
+   "mandatory_depends_on": "eval:doc.from_holder_type == 'Warehouse'",
+   "options": "Warehouse"
+  },
+  {
+   "depends_on": "eval:doc.from_holder_type == 'Department'",
+   "fieldname": "from_department",
+   "fieldtype": "Link",
+   "label": "From Department",
+   "mandatory_depends_on": "eval:doc.from_holder_type == 'Department'",
+   "options": "Department"
+  },
+  {
+   "fieldname": "from_location_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "available_qty_at_source",
+   "fieldtype": "Float",
+   "label": "Available Qty at Source",
+   "read_only": 1
+  },
+  {
+   "fieldname": "move_qty",
+   "fieldtype": "Float",
+   "label": "Move Qty",
+   "reqd": 1
+  },
+  {
+   "fieldname": "to_location_section",
+   "fieldtype": "Section Break",
+   "label": "Select To Location"
+  },
+  {
+   "default": "Warehouse",
+   "fieldname": "to_holder_type",
+   "fieldtype": "Select",
+   "label": "To Holder Type",
+   "options": "Warehouse\nDepartment",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.to_holder_type == 'Warehouse'",
+   "fieldname": "to_warehouse",
+   "fieldtype": "Link",
+   "label": "To Warehouse",
+   "mandatory_depends_on": "eval:doc.to_holder_type == 'Warehouse'",
+   "options": "Warehouse"
+  },
+  {
+   "depends_on": "eval:doc.to_holder_type == 'Department'",
+   "fieldname": "to_department",
+   "fieldtype": "Link",
+   "label": "To Department",
+   "mandatory_depends_on": "eval:doc.to_holder_type == 'Department'",
+   "options": "Department"
+  },
+  {
+   "fieldname": "to_location_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks",
+   "placeholder": "Moving selected quantity from Main Store to IT Department."
+  },
+  {
+   "fieldname": "movement_summary_section",
+   "fieldtype": "Section Break",
+   "label": "Movement Summary"
+  },
+  {
+   "fieldname": "movement_summary_html",
+   "fieldtype": "HTML",
+   "options": "<div style=\"color: var(--text-muted);\">Movement summary will appear here.</div>"
+  },
+  {
+   "fieldname": "purchase_receipt_reference_section",
+   "fieldtype": "Section Break",
+   "label": "Purchase Receipt Reference"
+  },
+  {
+   "fieldname": "purchase_receipt",
+   "fieldtype": "Link",
+   "label": "Purchase Receipt",
+   "options": "Purchase Receipt",
+   "read_only": 1
+  },
+  {
+   "fieldname": "selected_source_location",
+   "fieldtype": "Data",
+   "label": "Selected Source Location",
+   "read_only": 1
+  },
+  {
+   "fieldname": "purchase_receipt_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "rate",
+   "fieldtype": "Currency",
+   "label": "Rate",
+   "read_only": 1
+  },
+  {
+   "fieldname": "move_qty_value",
+   "fieldtype": "Currency",
+   "label": "Move Qty Value",
+   "read_only": 1
+  },
+  {
+   "default": "Rate aur value selected Purchase Receipt item row se li ja rahi hai. Purchase Receipt ID upar diya gaya hai.",
+   "fieldname": "reference_note",
+   "fieldtype": "Small Text",
+   "label": "Reference Note",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Move Asset",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_qech",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "column_break_yjni",
+   "fieldtype": "Column Break"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-06-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Fixed Asset Control",
+ "name": "Move Asset",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,0 +1,184 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-06-08 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "posting_date",
+  "company",
+  "asset",
+  "asset_name",
+  "from_holder_type",
+  "from_warehouse",
+  "from_department",
+  "from_location_display",
+  "to_holder_type",
+  "to_warehouse",
+  "to_department",
+  "to_location_display",
+  "qty",
+  "rate",
+  "amount",
+  "source_type",
+  "source_id",
+  "move_asset",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Posting Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "asset",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Asset",
+   "options": "Asset",
+   "reqd": 1
+  },
+  {
+   "fieldname": "asset_name",
+   "fieldtype": "Data",
+   "label": "Asset Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "from_holder_type",
+   "fieldtype": "Select",
+   "label": "From Holder Type",
+   "options": "Warehouse\nDepartment",
+   "reqd": 1
+  },
+  {
+   "fieldname": "from_warehouse",
+   "fieldtype": "Link",
+   "label": "From Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "from_department",
+   "fieldtype": "Link",
+   "label": "From Department",
+   "options": "Department"
+  },
+  {
+   "fieldname": "from_location_display",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "From Location Display",
+   "read_only": 1
+  },
+  {
+   "fieldname": "to_holder_type",
+   "fieldtype": "Select",
+   "label": "To Holder Type",
+   "options": "Warehouse\nDepartment",
+   "reqd": 1
+  },
+  {
+   "fieldname": "to_warehouse",
+   "fieldtype": "Link",
+   "label": "To Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "to_department",
+   "fieldtype": "Link",
+   "label": "To Department",
+   "options": "Department"
+  },
+  {
+   "fieldname": "to_location_display",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "To Location Display",
+   "read_only": 1
+  },
+  {
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Qty",
+   "reqd": 1
+  },
+  {
+   "fieldname": "rate",
+   "fieldtype": "Currency",
+   "label": "Rate"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_type",
+   "fieldtype": "Select",
+   "label": "Source Type",
+   "options": "Purchase Receipt\nMove Asset\nOpening"
+  },
+  {
+   "fieldname": "source_id",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "Source ID",
+   "options": "source_type"
+  },
+  {
+   "fieldname": "move_asset",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Move Asset",
+   "options": "Move Asset",
+   "reqd": 1
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-06-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Fixed Asset Control",
+ "name": "Asset Movement Ledger",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "search_fields": "asset,asset_name,from_location_display,to_location_display,source_id,move_asset",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "asset"
+}

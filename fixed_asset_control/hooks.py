@@ -1,0 +1,6 @@
+app_name = "fixed_asset_control"
+app_title = "Fixed Asset Control"
+app_publisher = "Dux Digitech"
+app_description = "Fixed Asset Control"
+app_email = "support@duxdigitech.com"
+app_license = "MIT"
