@@ -34,13 +34,19 @@
 			$wrapper.find(".layout-main-section, .layout-main-section-wrapper, .page-body").addClass("fac-full-width-section");
 			$wrapper.find(".page-head").hide();
 			this.sync_fullscreen_class();
+			this.hide_native_sidebar();
 			this.page.main.empty();
 			this.$root = $(`
 				<div class="fac-shell fac-app">
+					<button type="button" class="fac-mobile-toggle fac-shell-menu" data-open-sidebar aria-label="Open menu">&#9776;</button>
 					<div class="fac-sidebar-overlay" data-close-sidebar></div>
 					<aside class="fac-sidebar">
 						<button type="button" class="fac-sidebar-close" data-close-sidebar aria-label="Close menu">&times;</button>
+						<button type="button" class="fac-sidebar-toggle" data-toggle-sidebar aria-label="Collapse sidebar">‹</button>
 						<div class="fac-brand">
+							<div class="fac-collapsed-logo">
+								<img src="/private/files/dux-mark-black.png" alt="DUX">
+							</div>
 							<div class="fac-logo-card">
 								<img src="/assets/fixed_asset_control/images/transparent_logo.png" alt="Dux Digitech">
 							</div>
@@ -65,19 +71,31 @@
 			});
 			this.$root.on("click", "[data-open-sidebar]", () => this.open_sidebar());
 			this.$root.on("click", "[data-close-sidebar]", () => this.close_sidebar());
+			this.$root.on("click", "[data-toggle-sidebar]", () => this.toggle_sidebar());
+
+			
 		}
 
 		sync_fullscreen_class() {
 			const apply = () => {
 				const route = frappe.get_route ? frappe.get_route().join("/") : "";
-				$("body").toggleClass("fac-fullscreen-page", route === PAGE_ROUTE);
+				$("body, html").toggleClass("fac-fullscreen-page", route === PAGE_ROUTE);
 			};
-			$("body").addClass("fac-fullscreen-page");
+			$("body, html").addClass("fac-fullscreen-page");
 			if (frappe.router && frappe.router.on && !FACSinglePage.fullscreen_bound) {
 				frappe.router.on("change", apply);
 				FACSinglePage.fullscreen_bound = true;
 			}
 			setTimeout(apply, 0);
+		}
+
+		hide_native_sidebar() {
+			const route = frappe.get_route ? frappe.get_route().join("/") : "";
+			if (route !== PAGE_ROUTE) return;
+			const $container = $(this.wrapper).closest(".page-container, .desk-page, .layout-main");
+			$container
+				.find(".layout-side-section, .standard-sidebar, .desk-sidebar, .desk-sidebar-wrapper, .page-sidebar, .sidebar-column")
+				.addClass("fac-native-sidebar-hidden");
 		}
 
 		open_sidebar() {
@@ -86,6 +104,14 @@
 
 		close_sidebar() {
 			this.$root.removeClass("fac-sidebar-open");
+		}
+
+		toggle_sidebar() {
+			if (window.matchMedia("(max-width: 768px)").matches) {
+				this.open_sidebar();
+				return;
+			}
+			this.$root.toggleClass("fac-sidebar-collapsed");
 		}
 
 		show_screen(screen, prefill) {
@@ -698,15 +724,18 @@
 			$(`<style id="fac-single-page-style">
 				body.fac-fullscreen-page .navbar,body.fac-fullscreen-page header.navbar,body.fac-fullscreen-page .desk-navbar,body.fac-fullscreen-page .search-bar{display:none!important}
 				body.fac-fullscreen-page .page-container,body.fac-fullscreen-page .page-body,body.fac-fullscreen-page .layout-main-section{padding-top:0!important;margin-top:0!important}
+				html.fac-fullscreen-page body.fac-fullscreen-page .fac-native-sidebar-hidden,html.fac-fullscreen-page body.fac-fullscreen-page .body-sidebar-container,html.fac-fullscreen-page body.fac-fullscreen-page .body-sidebar,html.fac-fullscreen-page body.fac-fullscreen-page .layout-side-section,html.fac-fullscreen-page body.fac-fullscreen-page .standard-sidebar,html.fac-fullscreen-page body.fac-fullscreen-page .desk-sidebar,html.fac-fullscreen-page body.fac-fullscreen-page .desk-sidebar-wrapper,html.fac-fullscreen-page body.fac-fullscreen-page .page-sidebar,html.fac-fullscreen-page body.fac-fullscreen-page .sidebar-column,html.fac-fullscreen-page body.fac-fullscreen-page .col-lg-2.layout-side-section{display:none!important}
+				html.fac-fullscreen-page body.fac-fullscreen-page .layout-main-section,html.fac-fullscreen-page body.fac-fullscreen-page .layout-main-section-wrapper,html.fac-fullscreen-page body.fac-fullscreen-page .layout-main,html.fac-fullscreen-page body.fac-fullscreen-page .page-content,html.fac-fullscreen-page body.fac-fullscreen-page .page-body,html.fac-fullscreen-page body.fac-fullscreen-page .page-container,html.fac-fullscreen-page body.fac-fullscreen-page .container.page-body,html.fac-fullscreen-page body.fac-fullscreen-page .main-section,html.fac-fullscreen-page body.fac-fullscreen-page .desk-page{margin-left:0!important;padding-left:0!important;width:100%!important;max-width:none!important}
 				.page-container.fac-page-container,.page-container:has(.fac-app){max-width:none!important;width:100%!important;padding:0!important}
 				.page-container.fac-page-container .container,.page-container.fac-page-container .page-body,.page-container.fac-page-container .page-content,.page-container.fac-page-container .layout-main,.page-container.fac-page-container .layout-main-section-wrapper,.page-container.fac-page-container .layout-main-section,.page-container:has(.fac-app) .container,.page-container:has(.fac-app) .page-body,.page-container:has(.fac-app) .page-content,.page-container:has(.fac-app) .layout-main,.page-container:has(.fac-app) .layout-main-section-wrapper,.page-container:has(.fac-app) .layout-main-section{max-width:none!important;width:100%!important;padding-left:0!important;padding-right:0!important;margin-left:0!important;margin-right:0!important}
 				.page-container.fac-page-container .page-head,.page-container:has(.fac-app) .page-head{display:none!important}
 				.fac-page-wrapper .fac-full-width-section{max-width:none!important;width:100%!important;padding:0!important;margin:0!important}
+				html.fac-fullscreen-page body.fac-fullscreen-page .fac-shell,html.fac-fullscreen-page body.fac-fullscreen-page .fac-sidebar{min-height:100vh!important}
 				.fac-shell{display:flex;width:100%;min-height:calc(100vh - 56px);margin:0;background:linear-gradient(180deg,#f7f5f0 0%,#eef1f5 100%);color:#071326;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-				.fac-sidebar{width:260px;background:linear-gradient(180deg,#101827 0%,#0f1b2d 62%,#0b1322 100%);color:#fff;padding:24px 18px;flex:0 0 260px;min-height:calc(100vh - 56px);position:sticky;top:0;align-self:flex-start;box-shadow:18px 0 34px rgba(15,23,42,.12)}.fac-brand{display:flex;flex-direction:column;gap:10px;border-bottom:1px solid rgba(255,255,255,.12);padding-bottom:24px;margin-bottom:24px}
-				.fac-logo-card{background:transparent;border:0;border-radius:0;padding:0;box-shadow:none;width:170px;height:72px;max-width:100%;display:flex;align-items:center;justify-content:flex-start}.fac-logo-card img{display:block;max-width:160px;max-height:70px;width:auto;height:auto;object-fit:contain}.fac-brand-title{font-weight:650;font-size:18px;letter-spacing:0}.fac-brand-subtitle{font-size:12px;color:#cbd5e1}
+				.fac-sidebar{width:260px;background:linear-gradient(180deg,#101827 0%,#0f1b2d 62%,#0b1322 100%);color:#fff;padding:24px 18px;flex:0 0 260px;min-height:calc(100vh - 56px);position:sticky;top:0;align-self:flex-start;box-shadow:18px 0 34px rgba(15,23,42,.12);transition:width .18s ease,flex-basis .18s ease,padding .18s ease}.fac-sidebar-toggle{position:absolute;right:-14px;top:196px;width:28px;height:36px;border:1px solid rgba(255,255,255,.16);border-radius:999px;background:#fff;color:#0f1b2d;display:grid;place-items:center;font-size:20px;font-weight:800;line-height:1;box-shadow:0 10px 24px rgba(15,23,42,.18);z-index:4}.fac-sidebar-toggle:hover{background:#fff7ed;color:#b45309}.fac-app.fac-sidebar-collapsed .fac-sidebar{width:78px;flex-basis:78px;padding:24px 12px}.fac-app.fac-sidebar-collapsed .fac-sidebar-toggle{transform:rotate(180deg)}.fac-app.fac-sidebar-collapsed .fac-logo-card,.fac-app.fac-sidebar-collapsed .fac-brand-title,.fac-app.fac-sidebar-collapsed .fac-brand-subtitle,.fac-app.fac-sidebar-collapsed .fac-nav button span:not(.fac-nav-icon){display:none}.fac-app.fac-sidebar-collapsed .fac-brand{align-items:center}.fac-app.fac-sidebar-collapsed .fac-nav button{justify-content:center;padding:12px 0}.fac-app.fac-sidebar-collapsed .fac-main{width:calc(100vw - 78px)}.fac-brand{display:flex;flex-direction:column;gap:10px;border-bottom:1px solid rgba(255,255,255,.12);padding-bottom:24px;margin-bottom:24px}
+				.fac-collapsed-logo{display:none;width:44px;height:44px;border-radius:14px;background:#fff;align-items:center;justify-content:center;box-shadow:0 12px 24px rgba(15,23,42,.18)}.fac-collapsed-logo img{display:block;max-width:32px;max-height:32px;width:auto;height:auto;object-fit:contain}.fac-app.fac-sidebar-collapsed .fac-collapsed-logo{display:flex}.fac-logo-card{background:transparent;border:0;border-radius:0;padding:0;box-shadow:none;width:170px;height:72px;max-width:100%;display:flex;align-items:center;justify-content:flex-start}.fac-logo-card img{display:block;max-width:160px;max-height:70px;width:auto;height:auto;object-fit:contain}.fac-brand-title{font-weight:650;font-size:18px;letter-spacing:0}.fac-brand-subtitle{font-size:12px;color:#cbd5e1}
 				.fac-nav{display:flex;flex-direction:column;gap:10px}.fac-nav button{border:0;background:transparent;color:#dbeafe;text-align:left;padding:12px 13px;border-radius:12px;font-weight:650;display:flex;align-items:center;gap:11px;transition:background .16s ease,color .16s ease,transform .16s ease}.fac-nav button:hover{background:rgba(255,255,255,.08);color:#fff;transform:translateX(2px)}.fac-nav button.active{background:#fff;color:#071326;box-shadow:0 14px 28px rgba(0,0,0,.22)}.fac-nav-icon{width:28px;height:28px;border-radius:9px;background:rgba(245,158,11,.16);display:grid;place-items:center;font-size:10px;font-weight:650;color:#fde68a}.fac-nav button.active .fac-nav-icon{background:#fff7ed;color:#b45309}
-				.fac-mobile-toggle,.fac-sidebar-overlay,.fac-sidebar-close{display:none}
+				.fac-mobile-toggle,.fac-sidebar-overlay,.fac-sidebar-close,.fac-shell-menu{display:none}
 				.fac-main{flex:1;min-width:0;width:calc(100vw - 260px);padding:32px;overflow:auto}.fac-page-title{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px}.fac-page-title h1{font-size:30px;margin:0 0 8px;font-weight:650;letter-spacing:0}.fac-page-title p{margin:0;color:#53627c;font-size:15px}.fac-greeting{margin:-4px 0 18px;color:#475569;font-size:15px;font-weight:500}.fac-hero{display:flex;align-items:center;justify-content:space-between;gap:22px;background:linear-gradient(135deg,#101827 0%,#17233a 100%);color:#fff;border-radius:18px;padding:28px 30px;margin-bottom:22px;box-shadow:0 16px 34px rgba(15,23,42,.12)}.fac-hero-date{color:#f59e0b;text-transform:uppercase;letter-spacing:.14em;font-size:12px;font-weight:700;margin-bottom:10px}.fac-hero h1{font-size:29px;line-height:1.2;margin:0 0 8px;font-weight:650;color:#fff!important}.fac-hero p{margin:0;color:#dbeafe!important;font-size:15px}.fac-hero .fac-primary{box-shadow:none;white-space:nowrap}
 				.fac-primary{background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%);color:#fff;border:0;border-radius:12px;padding:12px 22px;font-weight:650;box-shadow:0 14px 28px rgba(245,158,11,.22);transition:transform .16s ease,box-shadow .16s ease}.fac-primary:hover{transform:translateY(-1px);box-shadow:0 18px 34px rgba(245,158,11,.28)}.fac-card{background:rgba(255,255,255,.94);border:1px solid #e8e2d8;border-radius:18px;padding:22px;box-shadow:0 14px 34px rgba(15,23,42,.06);backdrop-filter:saturate(130%) blur(4px);overflow-x:auto}
 				.fac-card-header h2{font-size:20px;margin:0 0 5px;font-weight:650}.fac-card-header p{margin:0 0 18px;color:#53627c}.fac-row{display:flex;justify-content:space-between;align-items:center}
@@ -720,7 +749,7 @@
 				@media(max-width:1100px){.fac-filter-box{grid-template-columns:1fr}.fac-form-grid,.fac-from-qty-row{grid-template-columns:1fr}.fac-ref{position:relative;top:auto}}
 				@media(max-width:700px){.fac-metrics{grid-template-columns:1fr}.fac-source-row{grid-template-columns:1fr}.fac-page-title{display:block}.fac-page-title .fac-primary{margin-top:14px;width:100%}}
 				@media(min-width:769px){.fac-sidebar-close{display:none!important}}
-				@media(max-width:768px){.fac-app{display:block}.fac-mobile-toggle{display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:12px;border:1px solid #d8e0ef;background:#fff;font-size:22px;font-weight:800;flex:0 0 42px}.fac-sidebar{position:fixed!important;top:0!important;left:-290px!important;width:280px!important;height:100vh!important;min-height:100vh!important;z-index:10000;transition:left .25s ease;overflow-y:auto}.fac-app.fac-sidebar-open .fac-sidebar{left:0!important}.fac-sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999}.fac-app.fac-sidebar-open .fac-sidebar-overlay{display:block}.fac-sidebar-close{display:inline-flex;align-items:center;justify-content:center;position:absolute;top:12px;right:12px;width:34px;height:34px;border:0;border-radius:10px;background:rgba(255,255,255,.12);color:#fff;font-size:24px;line-height:1}.fac-main{width:100%;padding:16px}.fac-page-title{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap}.fac-title-copy{flex:1;min-width:0}.fac-page-title h1{font-size:30px}.fac-page-title .fac-primary{width:100%;margin-top:8px}.fac-hero{display:block;padding:22px}.fac-hero .fac-primary{width:100%;margin-top:18px}.fac-filter-box,.fac-metrics,.fac-grid,.fac-move-layout{grid-template-columns:1fr!important}.fac-actions{justify-content:stretch}.fac-actions .fac-clear,.fac-actions .fac-primary{flex:1}.fac-card{width:100%}.fac-table{min-width:720px}}
+				@media(max-width:768px){.fac-app{display:block;position:relative}.fac-mobile-toggle{display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:12px;border:1px solid #d8e0ef;background:#fff;font-size:22px;font-weight:800;flex:0 0 42px}.fac-shell-menu{display:inline-flex;position:absolute;top:16px;left:16px;z-index:5}.fac-sidebar-toggle{display:none}.fac-sidebar{position:fixed!important;top:0!important;left:-290px!important;width:280px!important;height:100vh!important;min-height:100vh!important;z-index:10000;transition:left .25s ease;overflow-y:auto}.fac-app.fac-sidebar-open .fac-sidebar{left:0!important}.fac-sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999}.fac-app.fac-sidebar-open .fac-sidebar-overlay{display:block}.fac-sidebar-close{display:inline-flex;align-items:center;justify-content:center;position:absolute;top:12px;right:12px;width:34px;height:34px;border:0;border-radius:10px;background:rgba(255,255,255,.12);color:#fff;font-size:24px;line-height:1}.fac-main{width:100%;padding:16px}.fac-page-title{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap}.fac-title-copy{flex:1;min-width:0}.fac-page-title h1{font-size:30px}.fac-page-title .fac-primary{width:100%;margin-top:8px}.fac-hero{display:block;padding:64px 22px 22px}.fac-hero .fac-primary{width:100%;margin-top:18px}.fac-filter-box,.fac-metrics,.fac-grid,.fac-move-layout{grid-template-columns:1fr!important}.fac-actions{justify-content:stretch}.fac-actions .fac-clear,.fac-actions .fac-primary{flex:1}.fac-card{width:100%}.fac-table{min-width:720px}}
 			</style>`).appendTo("head");
 		}
 	}
