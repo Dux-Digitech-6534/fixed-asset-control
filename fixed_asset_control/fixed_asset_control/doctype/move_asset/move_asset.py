@@ -71,6 +71,10 @@ class MoveAsset(Document):
 		return f"{holder_type}: {location}" if holder_type and location else None
 
 	def get_selected_asset_bin(self):
+		selected = self.get_flag_selected_asset_bin()
+		if selected:
+			return selected
+
 		filters = self.get_source_bin_filters()
 		if not filters:
 			return None
@@ -83,6 +87,29 @@ class MoveAsset(Document):
 			limit=1,
 		)
 		return rows[0] if rows else None
+
+	def get_flag_selected_asset_bin(self):
+		selected_asset_bin = self.flags.get("selected_asset_bin") if self.flags else None
+		if not selected_asset_bin:
+			return None
+
+		row = frappe.db.get_value(
+			"Asset Bin",
+			selected_asset_bin,
+			["name", "company", "asset", "holder_type", "warehouse", "department", "qty", "rate", "source_type", "source_id", "location_display"],
+			as_dict=True,
+		)
+		if not row:
+			frappe.throw(_("Selected Asset Bin was not found."))
+		if row.company != self.company or row.asset != self.asset_name:
+			frappe.throw(_("Selected Asset Bin does not match the selected asset."))
+		if row.holder_type != self.from_holder_type:
+			frappe.throw(_("Selected Asset Bin does not match the source holder type."))
+		if row.holder_type == "Warehouse" and row.warehouse != self.from_warehouse:
+			frappe.throw(_("Selected Asset Bin does not match the source warehouse."))
+		if row.holder_type == "Department" and row.department != self.from_department:
+			frappe.throw(_("Selected Asset Bin does not match the source department."))
+		return row
 
 	def get_source_bin_filters(self):
 		if not (self.company and self.asset_name and self.from_holder_type):
@@ -193,6 +220,16 @@ class MoveAsset(Document):
 		# Movement History now reads submitted Move Asset records directly.
 
 	def get_source_bin_for_submit(self):
+		selected = self.get_flag_selected_asset_bin()
+		if selected:
+			if flt(selected.qty) < flt(self.move_qty):
+				frappe.throw(
+					_("Move Qty {0} cannot be greater than Available Qty at Source {1}.").format(
+						flt(self.move_qty), flt(selected.qty)
+					)
+				)
+			return frappe.get_doc("Asset Bin", selected.name)
+
 		filters = self.get_source_bin_filters()
 		if not filters:
 			frappe.throw(_("Valid source Asset Bin could not be identified."))
@@ -290,11 +327,10 @@ def get_asset_details(asset, company=None):
 	if balance_company:
 		filters["company"] = balance_company
 
-	total_qty = frappe.get_all(
-		"Asset Bin",
-		filters=filters,
-		fields=["sum(qty) as total_available_qty"],
-	)[0].total_available_qty or 0
+	total_qty = sum(
+		flt(row.qty)
+		for row in frappe.get_all("Asset Bin", filters=filters, fields=["qty"], limit_page_length=0)
+	)
 
 	return {
 		"asset_name": asset_doc.get("asset_name") or asset,

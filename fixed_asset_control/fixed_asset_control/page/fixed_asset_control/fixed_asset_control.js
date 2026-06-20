@@ -21,6 +21,8 @@
 			this.source_rows = [];
 			this.bin_rows = [];
 			this.last_submit = null;
+			this.submitting_move = false;
+			this.selected_filter_asset = "";
 			this.page = frappe.ui.make_app_page({ parent: wrapper, title: "", single_column: true });
 			this.make_shell();
 			this.show_screen("dashboard");
@@ -72,8 +74,18 @@
 			this.$root.on("click", "[data-open-sidebar]", () => this.open_sidebar());
 			this.$root.on("click", "[data-close-sidebar]", () => this.close_sidebar());
 			this.$root.on("click", "[data-toggle-sidebar]", () => this.toggle_sidebar());
+			this.bind_dropdown_close();
 
 			
+		}
+
+		bind_dropdown_close() {
+			if (FACSinglePage.dropdown_close_bound) return;
+			$(document).on("mousedown.fac-dropdown-close", (event) => {
+				if ($(event.target).closest(".fac-asset-options,.fac-location-options").length) return;
+				$(".fac-asset-options,.fac-location-options").remove();
+			});
+			FACSinglePage.dropdown_close_bound = true;
 		}
 
 		sync_fullscreen_class() {
@@ -152,7 +164,7 @@
 							<div><h2>Asset Current Balance</h2><p>Same asset can exist in multiple locations with different quantities.</p></div>
 							<button type="button" class="fac-clear" data-view-bin>View All</button>
 						</div>
-						<table class="fac-table"><thead><tr><th>Asset</th><th>Location</th><th>Qty</th><th>Source ID</th><th>Rate</th><th>Amount</th></tr></thead><tbody data-bin-rows></tbody></table>
+						<table class="fac-table"><thead><tr><th>Asset</th><th>Location</th><th>Qty</th><th>Source</th><th>Rate</th><th>Amount</th></tr></thead><tbody data-bin-rows></tbody></table>
 					</section>
 					<section class="fac-card">
 						<div class="fac-card-header"><h2>Latest Movements</h2><p>Recent location changes.</p></div>
@@ -202,7 +214,7 @@
 				${this.header("Asset Bin", "Location-wise asset balance with qty, rate and amount.")}
 				<section class="fac-card">
 					<div class="fac-filter-box" data-filter-box></div>
-					<table class="fac-table"><thead><tr><th>Asset</th><th>Item / Asset Name</th><th>Location</th><th>Qty</th><th>Source ID</th><th>Rate</th><th>Amount</th><th>Action</th></tr></thead><tbody data-bin-rows></tbody></table>
+					<table class="fac-table"><thead><tr><th>Asset</th><th>Location</th><th>Qty</th><th>Source</th><th>Rate</th><th>Amount</th><th>Action</th></tr></thead><tbody data-bin-rows></tbody></table>
 				</section>
 			`);
 			this.bind_header_actions();
@@ -229,7 +241,7 @@
 				<section class="fac-card">
 					<div class="fac-card-header"><h2>Movement History</h2><p>Audit trail with source, target, quantity, rate, amount and reference.</p></div>
 					<div class="fac-filter-box" data-filter-box></div>
-					<table class="fac-table"><thead><tr><th>Date</th><th>Asset</th><th>Qty</th><th>From</th><th>To</th><th>Source ID</th><th>Rate</th><th>Amount</th><th>Status</th></tr></thead><tbody data-history-rows></tbody></table>
+					<table class="fac-table"><thead><tr><th>Date</th><th>Asset</th><th>Qty</th><th>From</th><th>To</th><th>Source</th><th>Rate</th><th>Amount</th><th>Status</th></tr></thead><tbody data-history-rows></tbody></table>
 				</section>
 			`);
 			this.bind_header_actions();
@@ -283,7 +295,6 @@
 						<div class="fac-card-header fac-row"><h2>Purchase Receipt Reference</h2><a data-pr-link href="#">View</a></div>
 						<div class="fac-ref-box"><label>Purchase Receipt ID</label><strong><a data-pr-id href="#">-</a></strong></div>
 						<div class="fac-ref-box"><label>Selected Source Location</label><strong data-source>-</strong></div>
-						<div class="fac-ref-box"><label>Available Qty</label><strong data-source-qty-ref>0</strong></div>
 						<div class="fac-card-header fac-row"><h2>Rate & Amount</h2><span class="fac-chip">Auto</span></div>
 						<div class="fac-dark"><div><label>Rate</label><strong data-rate>0</strong></div><div><label>Move Qty Value</label><strong data-value>0</strong></div></div>
 						<div class="fac-note">Rate and value are taken from the selected source Asset Bin row. The Purchase Receipt reference is shown above when available.</div>
@@ -308,16 +319,17 @@
 				}
 				on_change();
 			};
-			const location_df = options.dynamic_location
-				? { label: history_mode ? "From / To Location" : "Location", fieldtype: "Select", options: "\n", placeholder: "All Locations" }
-				: { label: history_mode ? "From / To Location" : "Location", fieldtype: "Data", placeholder: "All Locations" };
+			const location_df = { label: history_mode ? "From / To Location" : "Location", fieldtype: "Data", placeholder: "All Locations" };
 			this.filter_controls = {
-				asset: this.control(box, "asset", { label: "Asset", fieldtype: "Link", options: "Asset", placeholder: "All Assets" }, fire_change),
-				holder_type: this.control(box, "holder_type", { label: "Holder Type", fieldtype: "Select", options: "All\nWarehouse\nDepartment", default: "All" }, holder_change),
+				asset: this.control(box, "asset", { label: "Asset", fieldtype: "Data", placeholder: "All Assets" }, () => {}),
+				holder_type: this.control(box, "holder_type", { label: "Warehouse / Department", fieldtype: "Select", options: "All\nWarehouse\nDepartment", default: "All" }, holder_change),
 				location: this.control(box, "location", location_df, fire_change),
 				from_date: this.control(box, "from_date", { label: "From Date", fieldtype: "Date", default: date_defaults.from_date || "" }, fire_change),
 				to_date: this.control(box, "to_date", { label: "To Date", fieldtype: "Date", default: date_defaults.to_date || "" }, fire_change),
 			};
+			this.setup_filter_asset_search(fire_change);
+			this.setup_filter_location_search(fire_change);
+			this.load_location_options();
 			if (options.default_dates) {
 				this.suppress_filter_change = true;
 				this.set_control_value(this.filter_controls.from_date, date_defaults.from_date || "");
@@ -326,13 +338,14 @@
 			}
 			$('<button type="button" class="fac-clear">Clear</button>').appendTo(box).on("click", () => {
 				this.suppress_filter_change = true;
+				this.selected_filter_asset = "";
 				this.set_control_value(this.filter_controls.asset, "");
 				this.set_control_value(this.filter_controls.holder_type, "All");
 				this.set_control_value(this.filter_controls.location, "");
 				this.set_control_value(this.filter_controls.from_date, date_defaults.from_date || "");
 				this.set_control_value(this.filter_controls.to_date, date_defaults.to_date || "");
 				this.suppress_filter_change = false;
-				if (options.dynamic_location) this.load_location_options();
+				this.load_location_options();
 				on_change();
 			});
 		}
@@ -345,10 +358,8 @@
 				const control = this.filter_controls.location;
 				const warehouses = holder_type === "Department" ? [] : (data.warehouses || []).map((row) => ({ label: `Warehouse: ${row.name || row}`, value: row.name || row }));
 				const departments = holder_type === "Warehouse" ? [] : (data.departments || []).map((row) => ({ label: `Department: ${row.name || row}`, value: row.name || row }));
-				const labels = [...warehouses, ...departments].map((row) => row.label);
-				control.df.options = ["", ...labels].join("\n");
-				control.refresh();
-				if (control.get_value() && !labels.includes(control.get_value())) {
+				this.location_options = [...warehouses, ...departments].map((row) => row.label);
+				if (control.get_value() && !this.location_options.includes(control.get_value())) {
 					control.set_value("");
 				}
 			});
@@ -372,24 +383,21 @@
 				const company = this.form.company && this.form.company.get_value();
 				return company ? { filters: { company } } : {};
 			};
-			const asset_query = () => {
-				const company = this.form.company && this.form.company.get_value();
-				if (!company) {
-					frappe.msgprint("Please select Company first.");
-					return { filters: { name: "__no_asset_without_company__" } };
-				}
-				return { filters: { company } };
+			const source_type_change = () => {
+				this.toggle_source_fields(true);
+				this.fetch_source();
 			};
-			const source_type_change = () => this.toggle_source_fields(true);
-			const source_change = () => this.fetch_source();
+			const source_change = () => {
+				this.fetch_source();
+			};
 			this.form.posting_date = this.control(this.$main, "posting_date", { label: "Posting Date", fieldtype: "Date", default: frappe.datetime.nowdate(), reqd: 1 }, () => {});
 			this.form.company = this.control(this.$main, "company", { label: "Company", fieldtype: "Link", options: "Company", reqd: 1 }, () => this.on_company_change());
-			this.form.asset_name = this.control(this.$main, "asset_name", { label: "Asset Name", fieldtype: "Link", options: "Asset", get_query: asset_query, reqd: 1 }, () => this.fetch_asset());
-			this.form.from_holder_type = this.control(this.$main, "from_holder_type", { label: "From Holder Type", fieldtype: "Select", options: "Warehouse\nDepartment", default: "Warehouse", reqd: 1 }, source_type_change);
+			this.form.asset_name = this.control(this.$main, "asset_name", { label: "Asset Name", fieldtype: "Data", placeholder: "Search Asset by asset name", reqd: 1 }, () => {});
+			this.form.from_holder_type = this.control(this.$main, "from_holder_type", { label: "From Warehouse / Department", fieldtype: "Select", options: "Warehouse\nDepartment", default: "Warehouse", reqd: 1 }, source_type_change);
 			this.form.from_warehouse = this.control(this.$main, "from_warehouse", { label: "From Warehouse", fieldtype: "Link", options: "Warehouse", get_query: company_query }, source_change);
 			this.form.from_department = this.control(this.$main, "from_department", { label: "From Department", fieldtype: "Link", options: "Department", get_query: company_query }, source_change);
 			this.form.move_qty = this.control(this.$main, "move_qty", { label: "Move Qty", fieldtype: "Float", reqd: 1 }, () => this.update_summary());
-			this.form.to_holder_type = this.control(this.$main, "to_holder_type", { label: "To Holder Type", fieldtype: "Select", options: "Warehouse\nDepartment", default: "Warehouse", reqd: 1 }, () => this.toggle_target_fields());
+			this.form.to_holder_type = this.control(this.$main, "to_holder_type", { label: "To Warehouse / Department", fieldtype: "Select", options: "Warehouse\nDepartment", default: "Warehouse", reqd: 1 }, () => this.toggle_target_fields());
 			this.form.to_warehouse = this.control(this.$main, "to_warehouse", { label: "To Warehouse", fieldtype: "Link", options: "Warehouse", get_query: company_query }, () => this.update_summary());
 			this.form.to_department = this.control(this.$main, "to_department", { label: "To Department", fieldtype: "Link", options: "Department", get_query: company_query }, () => this.update_summary());
 			this.form.remarks = this.control(this.$main, "remarks", { label: "Remarks", fieldtype: "Small Text" }, () => {});
@@ -398,6 +406,7 @@
 			this.toggle_target_fields();
 			this.$main.find("[data-submit]").on("click", () => this.submit_move());
 			this.$main.find("[data-reset]").on("click", () => this.reset_move_form(""));
+			this.setup_asset_bin_search();
 			this.$main.find("[data-pr-link],[data-pr-id]").on("click", (event) => {
 				const purchase_receipt = this.source && this.source.source_type === "Purchase Receipt" ? this.source.source_id : "";
 				if (!purchase_receipt) {
@@ -424,11 +433,19 @@
 		}
 
 		on_company_change() {
+			if (this.selected_asset) {
+				this.fetch_asset();
+				this.fetch_source();
+				return;
+			}
 			this.set_control_value(this.form.asset_name, "");
 			this.clear_asset_context();
 		}
 
 		clear_asset_context() {
+			this.selected_asset_bin = null;
+			this.selected_asset = "";
+			this.$main.find(".fac-asset-options").remove();
 			this.set_source({});
 			this.$main.find("[data-asset-title]").text("-");
 			this.$main.find("[data-category]").text("-");
@@ -458,7 +475,10 @@
 		apply_prefill() {
 			const opts = this.prefill || {};
 			if (opts.company) this.form.company.set_value(opts.company);
-			if (opts.asset) this.form.asset_name.set_value(opts.asset).then(() => this.fetch_asset());
+			if (opts.asset) {
+				this.selected_asset = opts.asset;
+				this.fetch_asset();
+			}
 			if (opts.from_holder_type) this.form.from_holder_type.set_value(opts.from_holder_type);
 			const location = opts.from_holder_type === "Department" ? opts.from_department : opts.from_warehouse;
 			if (location && opts.from_holder_type === "Department") this.form.from_department.set_value(location).then(() => this.fetch_source());
@@ -476,7 +496,7 @@
 			const location = this.filter_controls.location.get_value();
 			const date_defaults = this.current_screen === "dashboard" ? this.default_date_range() : {};
 			return {
-				asset: this.filter_controls.asset.get_value(),
+				asset: this.selected_filter_asset || "",
 				holder_type: holder === "All" ? "" : holder,
 				location: location === "All Locations" ? "" : location.replace(/^(Warehouse|Department):\s*/, ""),
 				from_date: this.filter_controls.from_date.get_value() || date_defaults.from_date || "",
@@ -494,7 +514,7 @@
 				`);
 				this.render_bin_rows(data.asset_bin_rows || [], this.$main.find("[data-bin-rows]"), false);
 				this.$main.find("[data-move-rows]").html((data.latest_movements || []).map((row) => `
-					<tr><td>${this.asset_link(row.asset)}</td><td>${row.qty}</td><td>${this.esc(row.to_location_display)}</td></tr>
+					<tr><td>${this.esc(row.asset_name || row.asset)}</td><td>${row.qty}</td><td>${this.esc(row.to_location_display)}</td></tr>
 				`).join("") || this.empty(3));
 			});
 		}
@@ -508,7 +528,7 @@
 		load_history() {
 			this.call("get_movement_history", { filters: this.filters() }).then((rows) => {
 				this.$main.find("[data-history-rows]").html((rows || []).map((row) => `
-					<tr><td>${this.date(row.posting_date)}</td><td>${this.asset_link(row.asset)}</td><td>${row.qty}</td><td>${this.esc(row.from_location_display)}</td><td>${this.esc(row.to_location_display)}</td><td>${this.source_link(row)}</td><td>${this.money(row.rate)}</td><td>${this.money(row.amount)}</td><td><span class="fac-status">Submitted</span></td></tr>
+					<tr><td>${this.date(row.posting_date)}</td><td>${this.esc(row.asset_name || row.asset)}</td><td>${row.qty}</td><td>${this.esc(row.from_location_display)}</td><td>${this.esc(row.to_location_display)}</td><td>${this.source_link(row)}</td><td>${this.money(row.rate)}</td><td>${this.money(row.amount)}</td><td><span class="fac-status">Submitted</span></td></tr>
 				`).join("") || this.empty(9));
 			});
 		}
@@ -516,34 +536,232 @@
 		render_bin_rows(rows, target, action) {
 			this.bin_rows = rows;
 			target.html(rows.map((row, index) => {
-				const asset_cell = `${this.asset_link(row.asset)}<div class="fac-small">${this.esc(row.asset_name)}</div>`;
+				const asset_cell = this.esc(row.asset_name || row.asset);
 				if (!action) {
 					return `<tr><td>${asset_cell}</td><td>${this.esc(row.location_display)}</td><td>${row.qty}</td><td>${this.source_link(row)}</td><td>${this.money(row.rate)}</td><td>${this.money(row.amount)}</td></tr>`;
 				}
-				return `<tr><td>${this.asset_link(row.asset)}</td><td>${this.esc(row.asset_name)}</td><td>${this.esc(row.location_display)}</td><td>${row.qty}</td><td>${this.source_link(row)}</td><td>${this.money(row.rate)}</td><td>${this.money(row.amount)}</td><td><button type="button" class="fac-row-btn" data-move-row="${index}">Move</button></td></tr>`;
-			}).join("") || this.empty(action ? 8 : 6));
+				return `<tr><td>${asset_cell}</td><td>${this.esc(row.location_display)}</td><td>${row.qty}</td><td>${this.source_link(row)}</td><td>${this.money(row.rate)}</td><td>${this.money(row.amount)}</td><td><button type="button" class="fac-row-btn" data-move-row="${index}">Move</button></td></tr>`;
+			}).join("") || this.empty(action ? 7 : 6));
+		}
+
+		setup_asset_bin_search() {
+			const input = this.form.asset_name && this.form.asset_name.$input;
+			if (!input || !input.length) return;
+			const $holder = input.closest(".frappe-control");
+			let timer = null;
+			input.attr("autocomplete", "off");
+			input.on("input", () => {
+				this.selected_asset_bin = null;
+				this.selected_asset = "";
+				clearTimeout(timer);
+				const txt = input.val();
+				if (!txt || txt.length < 1) {
+					this.clear_asset_context();
+					return;
+				}
+				timer = setTimeout(() => this.search_asset_bins(txt), 180);
+			});
+			input.on("focus", () => {
+				const txt = input.val() || "";
+				this.search_asset_bins(txt);
+			});
+			input.on("click", () => {
+				const txt = input.val() || "";
+				this.search_asset_bins(txt);
+			});
+			$holder.css("position", "relative");
+		}
+
+		setup_filter_asset_search(on_change) {
+			const input = this.filter_controls.asset && this.filter_controls.asset.$input;
+			if (!input || !input.length) return;
+			const $holder = input.closest(".frappe-control");
+			let timer = null;
+			input.attr("autocomplete", "off");
+			input.on("input", () => {
+				this.selected_filter_asset = "";
+				clearTimeout(timer);
+				const txt = input.val();
+				if (!txt || txt.length < 1) {
+					$holder.find(".fac-asset-options").remove();
+					if (!this.suppress_filter_change) on_change();
+					return;
+				}
+				timer = setTimeout(() => this.search_filter_assets(txt, on_change), 180);
+			});
+			input.on("focus", () => {
+				const txt = input.val() || "";
+				this.search_filter_assets(txt, on_change);
+			});
+			input.on("click", () => {
+				const txt = input.val() || "";
+				this.search_filter_assets(txt, on_change);
+			});
+			$holder.css("position", "relative");
+		}
+
+		setup_filter_location_search(on_change) {
+			const input = this.filter_controls.location && this.filter_controls.location.$input;
+			if (!input || !input.length) return;
+			const $holder = input.closest(".frappe-control");
+			let timer = null;
+			input.attr("autocomplete", "off");
+			input.on("input", () => {
+				clearTimeout(timer);
+				timer = setTimeout(() => this.render_filter_location_options(input.val() || "", on_change), 120);
+			});
+			input.on("focus click", () => {
+				this.render_filter_location_options(input.val() || "", on_change);
+			});
+			$holder.css("position", "relative");
+		}
+
+		render_filter_location_options(txt, on_change) {
+			const input = this.filter_controls.location && this.filter_controls.location.$input;
+			if (!input || !input.length) return;
+			const $holder = input.closest(".frappe-control");
+			$holder.find(".fac-location-options").remove();
+			const needle = (txt || "").trim().toLowerCase();
+			const options = (this.location_options || []).filter((label) => !needle || label.toLowerCase().includes(needle));
+			const html = options.map((label) => `
+				<button type="button" class="fac-location-option" data-location="${this.esc(label)}">${this.esc(label)}</button>
+			`).join("") || `<div class="fac-location-option fac-empty-option">No location found.</div>`;
+			const $options = $(`<div class="fac-location-options">${html}</div>`);
+			$options.on("mousedown", ".fac-location-option[data-location]", (event) => {
+				event.preventDefault();
+				this.set_control_value(this.filter_controls.location, $(event.currentTarget).data("location"));
+				$holder.find(".fac-location-options").remove();
+				if (!this.suppress_filter_change) on_change();
+			});
+			$holder.append($options);
+		}
+
+		search_filter_assets(txt, on_change) {
+			const company = this.form && this.form.company ? this.form.company.get_value() : "";
+			this.call_asset_bin_search({ txt, company, limit: 20 }).then((rows) => this.render_filter_asset_options(rows || [], on_change));
+		}
+
+		render_filter_asset_options(rows, on_change) {
+			const input = this.filter_controls.asset && this.filter_controls.asset.$input;
+			if (!input || !input.length) return;
+			const $holder = input.closest(".frappe-control");
+			$holder.find(".fac-asset-options").remove();
+			const seen = new Set();
+			const assets = [];
+			(rows || []).forEach((row) => {
+				if (seen.has(row.asset)) return;
+				seen.add(row.asset);
+				assets.push(row);
+			});
+			const html = assets.map((row) => `
+				<button type="button" class="fac-asset-option" data-asset="${this.esc(row.asset)}">
+					<strong>${this.esc(row.asset_name)}</strong>
+					<span>${this.esc(row.location_display || "-")} | Qty: ${this.esc(row.qty)}${row.source_id ? ` | ${this.esc(row.source_id)}` : ""}</span>
+				</button>
+			`).join("") || `<div class="fac-asset-option fac-empty-option">No Asset Bin balance found.</div>`;
+			const $options = $(`<div class="fac-asset-options">${html}</div>`);
+			$options.on("mousedown", ".fac-asset-option[data-asset]", (event) => {
+				event.preventDefault();
+				const asset = $(event.currentTarget).data("asset");
+				const row = assets.find((item) => item.asset === asset);
+				if (!row) return;
+				this.selected_filter_asset = row.asset;
+				this.set_control_value(this.filter_controls.asset, row.asset_name || "");
+				$holder.find(".fac-asset-options").remove();
+				if (!this.suppress_filter_change) on_change();
+			});
+			$holder.append($options);
+		}
+
+		search_asset_bins(txt) {
+			const company = this.form.company.get_value();
+			if (!company) {
+				frappe.msgprint("Please select Company first.");
+				this.set_control_value(this.form.asset_name, "");
+				return;
+			}
+			this.call_asset_bin_search({ txt, company, limit: 20 }).then((rows) => this.render_asset_bin_options(rows || []));
+		}
+
+		render_asset_bin_options(rows) {
+			const input = this.form.asset_name && this.form.asset_name.$input;
+			if (!input || !input.length) return;
+			const $holder = input.closest(".frappe-control");
+			$holder.find(".fac-asset-options").remove();
+			const seen = new Set();
+			const assets = [];
+			(rows || []).forEach((row) => {
+				if (seen.has(row.asset)) return;
+				seen.add(row.asset);
+				assets.push(row);
+			});
+			const html = assets.map((row) => `
+				<button type="button" class="fac-asset-option" data-asset="${this.esc(row.asset)}">
+					<strong>${this.esc(row.asset_name)}</strong>
+					<span>${this.esc(row.asset)}</span>
+				</button>
+			`).join("") || `<div class="fac-asset-option fac-empty-option">No Asset Bin balance found.</div>`;
+			const $options = $(`<div class="fac-asset-options">${html}</div>`);
+			$options.on("mousedown", ".fac-asset-option[data-asset]", (event) => {
+				event.preventDefault();
+				const asset = $(event.currentTarget).data("asset");
+				const row = assets.find((item) => item.asset === asset);
+				if (row) this.select_asset_bin(row);
+			});
+			$holder.append($options);
+		}
+
+		select_asset_bin(row) {
+			this.selected_asset_bin = null;
+			this.selected_asset = row.asset;
+			this.$main.find(".fac-asset-options").remove();
+			this.set_control_value(this.form.asset_name, row.asset_name || "");
+			this.fetch_asset();
 		}
 
 		fetch_asset() {
-			const asset = this.form.asset_name.get_value();
+			const asset = this.selected_asset;
 			const company = this.form.company.get_value();
 			if (!company) {
-				if (asset) frappe.msgprint("Please select Company first.");
 				this.set_control_value(this.form.asset_name, "");
 				this.clear_asset_context();
 				return;
 			}
 			if (!asset) {
-				this.clear_asset_context();
 				return;
 			}
 			this.call("get_asset_details", { asset, company }).then((details) => {
 				if (!this.form.company.get_value() && details.company) this.form.company.set_value(details.company);
+				this.set_control_value(this.form.asset_name, details.asset_name || this.form.asset_name.get_value());
 				this.$main.find("[data-asset-title]").text(details.asset_name || "-");
 				this.$main.find("[data-category]").text(details.asset_category || "-");
 				this.$main.find("[data-total]").text(details.total_available_qty || 0);
+				this.set_source({});
+				this.set_control_value(this.form.from_warehouse, "");
+				this.set_control_value(this.form.from_department, "");
 				this.fetch_source();
 			});
+		}
+
+		apply_asset_source(details) {
+			if (!details || !details.available_qty_at_source) {
+				this.fetch_source();
+				return;
+			}
+			const holder_type = details.holder_type || "Warehouse";
+			this.applying_asset_source = true;
+			this.set_control_value(this.form.from_holder_type, holder_type);
+			this.toggle_control_cell(this.form.from_warehouse, holder_type === "Warehouse");
+			this.toggle_control_cell(this.form.from_department, holder_type === "Department");
+			if (holder_type === "Warehouse") {
+				this.set_control_value(this.form.from_department, "");
+				this.set_control_value(this.form.from_warehouse, details.warehouse || "");
+			} else {
+				this.set_control_value(this.form.from_warehouse, "");
+				this.set_control_value(this.form.from_department, details.department || "");
+			}
+			this.applying_asset_source = false;
+			this.set_source(details);
 		}
 
 		render_source_rows(rows) {
@@ -555,14 +773,15 @@
 		}
 
 		fetch_source() {
+			if (this.applying_asset_source) return;
 			const holder_type = this.form.from_holder_type.get_value();
 			const location = holder_type === "Department" ? this.form.from_department.get_value() : this.form.from_warehouse.get_value();
-			if (!this.form.asset_name.get_value() || !this.form.company.get_value() || !holder_type || !location) {
+			if (!this.selected_asset || !this.form.company.get_value() || !holder_type || !location) {
 				this.set_source({});
 				return;
 			}
 			const args = {
-				asset: this.form.asset_name.get_value(),
+				asset: this.selected_asset,
 				company: this.form.company.get_value(),
 				holder_type,
 				warehouse: holder_type === "Warehouse" ? location : "",
@@ -574,7 +793,6 @@
 		set_source(source) {
 			this.source = source || {};
 			this.$main.find("[data-source-qty]").text(this.source.available_qty_at_source || 0);
-			this.$main.find("[data-source-qty-ref]").text(this.source.available_qty_at_source || 0);
 			const purchase_receipt = this.source.source_type === "Purchase Receipt" ? this.source.source_id || "" : "";
 			this.$main.find("[data-pr-id]").text(purchase_receipt || "-");
 			this.$main.find("[data-source]").text(this.source.selected_source_location || "-");
@@ -586,8 +804,8 @@
 
 		toggle_source_fields(clear_location) {
 			const holder_type = this.form.from_holder_type.get_value() || "Warehouse";
-			this.form.from_warehouse.toggle(holder_type === "Warehouse");
-			this.form.from_department.toggle(holder_type === "Department");
+			this.toggle_control_cell(this.form.from_warehouse, holder_type === "Warehouse");
+			this.toggle_control_cell(this.form.from_department, holder_type === "Department");
 			if (clear_location) {
 				this.set_control_value(this.form.from_warehouse, "");
 				this.set_control_value(this.form.from_department, "");
@@ -598,9 +816,16 @@
 
 		toggle_target_fields() {
 			const holder_type = this.form.to_holder_type.get_value();
-			this.form.to_warehouse.toggle(holder_type === "Warehouse");
-			this.form.to_department.toggle(holder_type === "Department");
+			this.toggle_control_cell(this.form.to_warehouse, holder_type === "Warehouse");
+			this.toggle_control_cell(this.form.to_department, holder_type === "Department");
 			this.update_summary();
+		}
+
+		toggle_control_cell(control, show) {
+			if (!control) return;
+			control.toggle(show);
+			const $cell = control.$wrapper && control.$wrapper.closest("[data-field]");
+			if ($cell && $cell.length) $cell.toggle(show);
 		}
 
 		update_summary() {
@@ -624,13 +849,14 @@
 		}
 
 		submit_move() {
+			if (this.submitting_move) return;
 			const holder_type = this.form.from_holder_type.get_value();
 			const source_location = holder_type === "Department" ? this.form.from_department.get_value() : this.form.from_warehouse.get_value();
 			const to_type = this.form.to_holder_type.get_value();
 			const to_location = to_type === "Department" ? this.form.to_department.get_value() : this.form.to_warehouse.get_value();
 			const move_qty = this.num(this.form.move_qty.get_value());
 
-			if (!this.form.company.get_value() || !this.form.asset_name.get_value() || !source_location || !to_location || move_qty <= 0) {
+			if (!this.form.company.get_value() || !this.selected_asset || !source_location || !to_location || move_qty <= 0) {
 				frappe.msgprint("Please select asset, source, target and move quantity.");
 				return;
 			}
@@ -646,7 +872,7 @@
 			const data = {
 				posting_date: this.form.posting_date.get_value(),
 				company: this.form.company.get_value(),
-				asset_name: this.form.asset_name.get_value(),
+				asset_name: this.selected_asset,
 				from_holder_type: holder_type,
 				from_warehouse: holder_type === "Warehouse" ? source_location : "",
 				from_department: holder_type === "Department" ? source_location : "",
@@ -657,6 +883,9 @@
 				remarks: this.form.remarks.get_value(),
 			};
 
+			this.submitting_move = true;
+			const $submit = this.$main.find("[data-submit]");
+			$submit.prop("disabled", true).text("Submitting...");
 			this.call("submit_move_asset", { data }).then((result) => {
 				this.last_submit = result;
 				frappe.show_alert({ message: `Submitted ${result.move_asset}`, indicator: "green" });
@@ -664,6 +893,9 @@
 				this.$main.find("[data-submit-message]").html(`
 					<div class="fac-success">Submitted <a href="/app/move-asset/${encodeURIComponent(result.move_asset)}">${this.esc(result.move_asset)}</a>. Dashboard, Asset Bin and Movement History will load updated data when opened.</div>
 				`);
+			}).finally(() => {
+				this.submitting_move = false;
+				$submit.prop("disabled", false).text("Submit Movement");
 			});
 		}
 
@@ -679,6 +911,13 @@
 
 		call(method, args) {
 			return frappe.call({ method: API + method, args }).then((response) => response.message || {});
+		}
+
+		call_asset_bin_search(args) {
+			return frappe.call({
+				method: "fixed_asset_control.fixed_asset_control.asset_bin_search.search_asset_bins",
+				args,
+			}).then((response) => response.message || []);
 		}
 
 		metric(label, value, chip, screen, filter) {
@@ -732,6 +971,12 @@
 				.fac-page-wrapper .fac-full-width-section{max-width:none!important;width:100%!important;padding:0!important;margin:0!important}
 				html.fac-fullscreen-page body.fac-fullscreen-page .fac-shell,html.fac-fullscreen-page body.fac-fullscreen-page .fac-sidebar{min-height:100vh!important}
 				.fac-shell{display:flex;width:100%;min-height:calc(100vh - 56px);margin:0;background:linear-gradient(180deg,#f7f5f0 0%,#eef1f5 100%);color:#071326;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+				.fac-asset-options,.fac-location-options{position:absolute;z-index:20;top:100%;left:0;right:0;max-height:260px;overflow:auto;background:#fff;border:1px solid #e5d8c8;border-radius:8px;box-shadow:0 16px 36px rgba(15,23,42,.16);padding:6px}
+				.fac-asset-option,.fac-location-option{display:block;width:100%;border:0;background:#fff;text-align:left;padding:10px 12px;border-radius:6px;color:#111827}
+				.fac-asset-option:hover,.fac-location-option:hover{background:#fff7ed}
+				.fac-asset-option strong{display:block;font-size:13px}
+				.fac-asset-option span{display:block;margin-top:3px;color:#64748b;font-size:12px}
+				.fac-empty-option{color:#64748b}
 				.fac-sidebar{width:260px;background:linear-gradient(180deg,#101827 0%,#0f1b2d 62%,#0b1322 100%);color:#fff;padding:24px 18px;flex:0 0 260px;min-height:calc(100vh - 56px);position:sticky;top:0;align-self:flex-start;box-shadow:18px 0 34px rgba(15,23,42,.12);transition:width .18s ease,flex-basis .18s ease,padding .18s ease}.fac-sidebar-toggle{position:absolute;right:-14px;top:196px;width:28px;height:36px;border:1px solid rgba(255,255,255,.16);border-radius:999px;background:#fff;color:#0f1b2d;display:grid;place-items:center;font-size:20px;font-weight:800;line-height:1;box-shadow:0 10px 24px rgba(15,23,42,.18);z-index:4}.fac-sidebar-toggle:hover{background:#fff7ed;color:#b45309}.fac-app.fac-sidebar-collapsed .fac-sidebar{width:78px;flex-basis:78px;padding:24px 12px}.fac-app.fac-sidebar-collapsed .fac-sidebar-toggle{transform:rotate(180deg)}.fac-app.fac-sidebar-collapsed .fac-logo-card,.fac-app.fac-sidebar-collapsed .fac-brand-title,.fac-app.fac-sidebar-collapsed .fac-brand-subtitle,.fac-app.fac-sidebar-collapsed .fac-nav button span:not(.fac-nav-icon){display:none}.fac-app.fac-sidebar-collapsed .fac-brand{align-items:center}.fac-app.fac-sidebar-collapsed .fac-nav button{justify-content:center;padding:12px 0}.fac-app.fac-sidebar-collapsed .fac-main{width:calc(100vw - 78px)}.fac-brand{display:flex;flex-direction:column;gap:10px;border-bottom:1px solid rgba(255,255,255,.12);padding-bottom:24px;margin-bottom:24px}
 				.fac-collapsed-logo{display:none;width:44px;height:44px;border-radius:14px;background:#fff;align-items:center;justify-content:center;box-shadow:0 12px 24px rgba(15,23,42,.18)}.fac-collapsed-logo img{display:block;max-width:32px;max-height:32px;width:auto;height:auto;object-fit:contain}.fac-app.fac-sidebar-collapsed .fac-collapsed-logo{display:flex}.fac-logo-card{background:transparent;border:0;border-radius:0;padding:0;box-shadow:none;width:170px;height:72px;max-width:100%;display:flex;align-items:center;justify-content:flex-start}.fac-logo-card img{display:block;max-width:160px;max-height:70px;width:auto;height:auto;object-fit:contain}.fac-brand-title{font-weight:650;font-size:18px;letter-spacing:0}.fac-brand-subtitle{font-size:12px;color:#cbd5e1}
 				.fac-nav{display:flex;flex-direction:column;gap:10px}.fac-nav button{border:0;background:transparent;color:#dbeafe;text-align:left;padding:12px 13px;border-radius:12px;font-weight:650;display:flex;align-items:center;gap:11px;transition:background .16s ease,color .16s ease,transform .16s ease}.fac-nav button:hover{background:rgba(255,255,255,.08);color:#fff;transform:translateX(2px)}.fac-nav button.active{background:#fff;color:#071326;box-shadow:0 14px 28px rgba(0,0,0,.22)}.fac-nav-icon{width:28px;height:28px;border-radius:9px;background:rgba(245,158,11,.16);display:grid;place-items:center;font-size:10px;font-weight:650;color:#fde68a}.fac-nav button.active .fac-nav-icon{background:#fff7ed;color:#b45309}
