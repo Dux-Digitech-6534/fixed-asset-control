@@ -56,6 +56,7 @@
 							<div class="fac-brand-subtitle">Asset Movement System</div>
 						</div>
 						<nav class="fac-nav">
+							<button type="button" data-home-route><span class="fac-nav-icon">HM</span><span>Home</span></button>
 							<button type="button" data-screen="dashboard"><span class="fac-nav-icon">DB</span><span>Dashboard</span></button>
 							<button type="button" data-screen="move"><span class="fac-nav-icon">MV</span><span>Move Asset</span></button>
 							<button type="button" data-screen="bin"><span class="fac-nav-icon">AB</span><span>Asset Bin</span></button>
@@ -70,6 +71,9 @@
 			this.$root.on("click", "[data-screen]", (event) => {
 				this.show_screen($(event.currentTarget).data("screen"));
 				if (window.matchMedia("(max-width: 768px)").matches) this.close_sidebar();
+			});
+			this.$root.on("click", "[data-home-route]", () => {
+				frappe.set_route("dux-portal");
 			});
 			this.$root.on("click", "[data-open-sidebar]", () => this.open_sidebar());
 			this.$root.on("click", "[data-close-sidebar]", () => this.close_sidebar());
@@ -218,18 +222,29 @@
 				</section>
 			`);
 			this.bind_header_actions();
-			this.make_filters(() => this.load_bin());
+			this.make_filters(() => this.load_bin(), false, { dynamic_location: true });
 			if (this.prefill && this.prefill.filters) {
 				this.apply_filters(this.prefill.filters);
 			}
 			this.$main.on("click", "[data-move-row]", (event) => {
 				const row = this.bin_rows[Number($(event.currentTarget).data("move-row"))];
 				this.show_screen("move", {
+					asset_bin: row.name,
 					asset: row.asset,
+					asset_name: row.asset_name,
 					company: row.company,
+					holder_type: row.holder_type,
 					from_holder_type: row.holder_type,
 					from_warehouse: row.warehouse,
 					from_department: row.department,
+					location_display: row.location_display,
+					available_qty_at_source: row.qty,
+					total_available_qty: row.qty,
+					source_type: row.source_type,
+					source_id: row.source_id,
+					selected_source_location: `${row.location_display || ""} | Qty ${row.qty}${row.source_id ? ` | ${row.source_id}` : ""}`,
+					rate: row.rate,
+					amount: row.amount,
 				});
 			});
 			this.load_bin();
@@ -241,11 +256,11 @@
 				<section class="fac-card">
 					<div class="fac-card-header"><h2>Movement History</h2><p>Audit trail with source, target, quantity, rate, amount and reference.</p></div>
 					<div class="fac-filter-box" data-filter-box></div>
-					<table class="fac-table"><thead><tr><th>Date</th><th>Asset</th><th>Qty</th><th>From</th><th>To</th><th>Source</th><th>Rate</th><th>Amount</th><th>Status</th></tr></thead><tbody data-history-rows></tbody></table>
+					<table class="fac-table"><thead><tr><th>Date</th><th>Asset</th><th>Qty</th><th>From</th><th>To</th><th>Remarks</th><th>Submitted By</th><th>Source</th><th>Rate</th><th>Amount</th></tr></thead><tbody data-history-rows></tbody></table>
 				</section>
 			`);
 			this.bind_header_actions();
-			this.make_filters(() => this.load_history(), true);
+			this.make_filters(() => this.load_history(), true, { dynamic_location: true });
 			this.load_history();
 		}
 
@@ -262,9 +277,9 @@
 								<div data-field="posting_date"></div>
 								<div data-field="company"></div>
 								<div data-field="asset_name" class="fac-wide"></div>
-								<div class="fac-read"><label>Asset Name</label><strong data-asset-title>-</strong></div>
-								<div class="fac-read"><label>Total Available Qty</label><strong data-total>0</strong></div>
+								<div class="fac-read fac-hidden"><label>Asset Name</label><strong data-asset-title>-</strong></div>
 								<div class="fac-read"><label>Asset Category</label><strong data-category>-</strong></div>
+								<div class="fac-read"><label>Total Available Qty</label><strong data-total>0</strong></div>
 							</div>
 						</div>
 						<div class="fac-section">
@@ -308,6 +323,7 @@
 		make_filters(on_change, history_mode, options = {}) {
 			const box = this.$main.find("[data-filter-box]");
 			const date_defaults = options.default_dates ? this.default_date_range() : {};
+			this.selected_filter_asset = "";
 			const fire_change = () => {
 				if (!this.suppress_filter_change) on_change();
 			};
@@ -329,6 +345,7 @@
 			};
 			this.setup_filter_asset_search(fire_change);
 			this.setup_filter_location_search(fire_change);
+			this.set_control_value(this.filter_controls.holder_type, "All");
 			this.load_location_options();
 			if (options.default_dates) {
 				this.suppress_filter_change = true;
@@ -393,9 +410,9 @@
 			this.form.posting_date = this.control(this.$main, "posting_date", { label: "Posting Date", fieldtype: "Date", default: frappe.datetime.nowdate(), reqd: 1 }, () => {});
 			this.form.company = this.control(this.$main, "company", { label: "Company", fieldtype: "Link", options: "Company", reqd: 1 }, () => this.on_company_change());
 			this.form.asset_name = this.control(this.$main, "asset_name", { label: "Asset Name", fieldtype: "Data", placeholder: "Search Asset by asset name", reqd: 1 }, () => {});
-			this.form.from_holder_type = this.control(this.$main, "from_holder_type", { label: "From Warehouse / Department", fieldtype: "Select", options: "Warehouse\nDepartment", default: "Warehouse", reqd: 1 }, source_type_change);
-			this.form.from_warehouse = this.control(this.$main, "from_warehouse", { label: "From Warehouse", fieldtype: "Link", options: "Warehouse", get_query: company_query }, source_change);
-			this.form.from_department = this.control(this.$main, "from_department", { label: "From Department", fieldtype: "Link", options: "Department", get_query: company_query }, source_change);
+			this.form.from_holder_type = this.control(this.$main, "from_holder_type", { label: "From Warehouse / Department", fieldtype: "Select", options: "\nWarehouse\nDepartment", reqd: 1 }, source_type_change);
+			this.form.from_warehouse = this.control(this.$main, "from_warehouse", { label: "From Warehouse", fieldtype: "Data", placeholder: "Select source warehouse" }, source_change);
+			this.form.from_department = this.control(this.$main, "from_department", { label: "From Department", fieldtype: "Data", placeholder: "Select source department" }, source_change);
 			this.form.move_qty = this.control(this.$main, "move_qty", { label: "Move Qty", fieldtype: "Float", reqd: 1 }, () => this.update_summary());
 			this.form.to_holder_type = this.control(this.$main, "to_holder_type", { label: "To Warehouse / Department", fieldtype: "Select", options: "Warehouse\nDepartment", default: "Warehouse", reqd: 1 }, () => this.toggle_target_fields());
 			this.form.to_warehouse = this.control(this.$main, "to_warehouse", { label: "To Warehouse", fieldtype: "Link", options: "Warehouse", get_query: company_query }, () => this.update_summary());
@@ -407,6 +424,7 @@
 			this.$main.find("[data-submit]").on("click", () => this.submit_move());
 			this.$main.find("[data-reset]").on("click", () => this.reset_move_form(""));
 			this.setup_asset_bin_search();
+			this.setup_source_location_search();
 			this.$main.find("[data-pr-link],[data-pr-id]").on("click", (event) => {
 				const purchase_receipt = this.source && this.source.source_type === "Purchase Receipt" ? this.source.source_id : "";
 				if (!purchase_receipt) {
@@ -418,7 +436,7 @@
 				frappe.set_route("Form", "Purchase Receipt", purchase_receipt);
 			});
 			this.call("get_move_asset_form_options").then((opts) => {
-				if (!this.form.company.get_value() && opts.companies && opts.companies.length) {
+				if (!this.prefill && !this.form.company.get_value() && opts.companies && opts.companies.length) {
 					this.form.company.set_value(opts.companies[0]);
 				}
 				this.apply_prefill();
@@ -432,7 +450,20 @@
 			if (control.$input) control.$input.val(value || "");
 		}
 
+		set_source_location_value(control, value) {
+			this.set_control_value(control, value);
+			if (!control || !control.$input) return;
+			const stable_value = value || "";
+			const apply_value = () => {
+				control.$input.val(stable_value);
+				control.value = stable_value;
+			};
+			apply_value();
+			setTimeout(apply_value, 0);
+		}
+
 		on_company_change() {
+			if (this.applying_prefill) return;
 			if (this.selected_asset) {
 				this.fetch_asset();
 				this.fetch_source();
@@ -456,6 +487,7 @@
 			this.set_control_value(this.form.move_qty, "");
 			this.set_control_value(this.form.to_warehouse, "");
 			this.set_control_value(this.form.to_department, "");
+			this.set_control_value(this.form.from_holder_type, "");
 			this.toggle_source_fields();
 			this.update_summary();
 		}
@@ -474,6 +506,21 @@
 
 		apply_prefill() {
 			const opts = this.prefill || {};
+			if (opts.asset_bin) {
+				this.applying_prefill = true;
+				const company_set = opts.company ? this.form.company.set_value(opts.company) : Promise.resolve();
+				Promise.resolve(company_set).then(() => {
+					this.selected_asset_bin = opts.asset_bin;
+					this.selected_asset = opts.asset;
+					this.set_control_value(this.form.asset_name, opts.asset_name || "");
+					return this.fetch_asset(true);
+				}).then(() => {
+					this.apply_asset_source(opts);
+				}).finally(() => {
+					this.applying_prefill = false;
+				});
+				return;
+			}
 			if (opts.company) this.form.company.set_value(opts.company);
 			if (opts.asset) {
 				this.selected_asset = opts.asset;
@@ -486,6 +533,7 @@
 		}
 
 		apply_filters(filters) {
+			this.selected_filter_asset = filters && filters.asset ? filters.asset : "";
 			Object.keys(filters || {}).forEach((fieldname) => {
 				if (this.filter_controls[fieldname]) this.filter_controls[fieldname].set_value(filters[fieldname]);
 			});
@@ -527,9 +575,10 @@
 
 		load_history() {
 			this.call("get_movement_history", { filters: this.filters() }).then((rows) => {
-				this.$main.find("[data-history-rows]").html((rows || []).map((row) => `
-					<tr><td>${this.date(row.posting_date)}</td><td>${this.esc(row.asset_name || row.asset)}</td><td>${row.qty}</td><td>${this.esc(row.from_location_display)}</td><td>${this.esc(row.to_location_display)}</td><td>${this.source_link(row)}</td><td>${this.money(row.rate)}</td><td>${this.money(row.amount)}</td><td><span class="fac-status">Submitted</span></td></tr>
-				`).join("") || this.empty(9));
+				this.history_rows = rows || [];
+				this.$main.find("[data-history-rows]").html(this.history_rows.map((row) => `
+					<tr><td>${this.date(row.posting_date)}</td><td>${this.esc(row.asset_name || row.asset)}</td><td>${row.qty}</td><td>${this.esc(row.from_location_display)}</td><td>${this.esc(row.to_location_display)}</td><td>${this.esc(row.remarks || "-")}</td><td>${this.esc(row.submitted_by || row.submitted_by_user || "-")}</td><td>${this.source_link(row)}</td><td>${this.money(row.rate)}</td><td>${this.money(row.amount)}</td></tr>
+				`).join("") || this.empty(10));
 			});
 		}
 
@@ -570,6 +619,77 @@
 				this.search_asset_bins(txt);
 			});
 			$holder.css("position", "relative");
+		}
+
+		setup_source_location_search() {
+			[this.form.from_warehouse, this.form.from_department].forEach((control) => {
+				const input = control && control.$input;
+				if (!input || !input.length) return;
+				const $holder = input.closest(".frappe-control");
+				let timer = null;
+				input.attr("autocomplete", "off");
+				input.on("input", () => {
+					clearTimeout(timer);
+					timer = setTimeout(() => this.render_source_location_options(control, input.val() || ""), 120);
+				});
+				input.on("focus click", () => this.render_source_location_options(control, input.val() || ""));
+				$holder.css("position", "relative");
+			});
+		}
+
+		render_source_location_options(control, txt) {
+			const input = control && control.$input;
+			if (!input || !input.length) return;
+			const holder_type = this.form.from_holder_type.get_value();
+			if (!this.selected_asset || !holder_type) return;
+			const $holder = input.closest(".frappe-control");
+			$holder.find(".fac-location-options").remove();
+			this.call_asset_bin_search({ txt: "", company: this.form.company.get_value(), limit: 200 }).then((rows) => {
+				const needle = (txt || "").trim().toLowerCase();
+				const locations = (rows || [])
+					.filter((row) => row.asset === this.selected_asset && row.holder_type === holder_type && this.num(row.qty) > 0)
+					.filter((row) => {
+						const location = holder_type === "Department" ? row.department : row.warehouse;
+						return location && (!needle || location.toLowerCase().includes(needle));
+					});
+				const html = locations.map((row) => {
+					const location = holder_type === "Department" ? row.department : row.warehouse;
+					return `
+						<button type="button" class="fac-location-option" data-bin="${this.esc(row.name)}">
+							<strong>${this.esc(location)}</strong>
+							<span>${this.esc(row.location_display || "")} | Qty: ${this.esc(row.qty)}${row.source_id ? ` | ${this.esc(row.source_id)}` : ""}</span>
+						</button>
+					`;
+				}).join("") || `<div class="fac-location-option fac-empty-option">No source balance found.</div>`;
+				const $options = $(`<div class="fac-location-options">${html}</div>`);
+				$options.on("mousedown", ".fac-location-option[data-bin]", (event) => {
+					event.preventDefault();
+					const name = $(event.currentTarget).data("bin");
+					const row = locations.find((item) => item.name === name);
+					if (!row) return;
+					this.selected_asset_bin = row.name;
+					this.set_source_location_value(control, holder_type === "Department" ? row.department : row.warehouse);
+					$holder.find(".fac-location-options").remove();
+					this.apply_asset_source({
+						asset: row.asset,
+						asset_bin: row.name,
+						asset_name: row.asset_name,
+						company: row.company,
+						total_available_qty: this.$main.find("[data-total]").text() || row.qty,
+						available_qty_at_source: row.qty,
+						holder_type: row.holder_type,
+						warehouse: row.warehouse,
+						department: row.department,
+						location_display: row.location_display,
+						selected_source_location: `${row.location_display || ""} | Qty ${row.qty}${row.source_id ? ` | ${row.source_id}` : ""}`,
+						source_type: row.source_type,
+						source_id: row.source_id,
+						rate: row.rate,
+						amount: row.amount,
+					});
+				});
+				$holder.append($options);
+			});
 		}
 
 		setup_filter_asset_search(on_change) {
@@ -719,26 +839,29 @@
 			this.fetch_asset();
 		}
 
-		fetch_asset() {
+		fetch_asset(preserve_source) {
 			const asset = this.selected_asset;
 			const company = this.form.company.get_value();
 			if (!company) {
 				this.set_control_value(this.form.asset_name, "");
 				this.clear_asset_context();
-				return;
+				return Promise.resolve();
 			}
 			if (!asset) {
-				return;
+				return Promise.resolve();
 			}
-			this.call("get_asset_details", { asset, company }).then((details) => {
+			return this.call("get_asset_details", { asset, company }).then((details) => {
 				if (!this.form.company.get_value() && details.company) this.form.company.set_value(details.company);
 				this.set_control_value(this.form.asset_name, details.asset_name || this.form.asset_name.get_value());
 				this.$main.find("[data-asset-title]").text(details.asset_name || "-");
 				this.$main.find("[data-category]").text(details.asset_category || "-");
 				this.$main.find("[data-total]").text(details.total_available_qty || 0);
+				if (preserve_source) return;
 				this.set_source({});
 				this.set_control_value(this.form.from_warehouse, "");
 				this.set_control_value(this.form.from_department, "");
+				this.set_control_value(this.form.from_holder_type, "");
+				this.toggle_source_fields();
 				this.fetch_source();
 			});
 		}
@@ -748,17 +871,18 @@
 				this.fetch_source();
 				return;
 			}
-			const holder_type = details.holder_type || "Warehouse";
+			if (details.asset_bin) this.selected_asset_bin = details.asset_bin;
+			const holder_type = details.holder_type || details.from_holder_type || "Warehouse";
 			this.applying_asset_source = true;
 			this.set_control_value(this.form.from_holder_type, holder_type);
 			this.toggle_control_cell(this.form.from_warehouse, holder_type === "Warehouse");
 			this.toggle_control_cell(this.form.from_department, holder_type === "Department");
 			if (holder_type === "Warehouse") {
 				this.set_control_value(this.form.from_department, "");
-				this.set_control_value(this.form.from_warehouse, details.warehouse || "");
+				this.set_source_location_value(this.form.from_warehouse, details.warehouse || "");
 			} else {
 				this.set_control_value(this.form.from_warehouse, "");
-				this.set_control_value(this.form.from_department, details.department || "");
+				this.set_source_location_value(this.form.from_department, details.department || "");
 			}
 			this.applying_asset_source = false;
 			this.set_source(details);
@@ -803,7 +927,7 @@
 		}
 
 		toggle_source_fields(clear_location) {
-			const holder_type = this.form.from_holder_type.get_value() || "Warehouse";
+			const holder_type = this.form.from_holder_type.get_value();
 			this.toggle_control_cell(this.form.from_warehouse, holder_type === "Warehouse");
 			this.toggle_control_cell(this.form.from_department, holder_type === "Department");
 			if (clear_location) {
@@ -873,6 +997,7 @@
 				posting_date: this.form.posting_date.get_value(),
 				company: this.form.company.get_value(),
 				asset_name: this.selected_asset,
+				asset_bin: this.selected_asset_bin,
 				from_holder_type: holder_type,
 				from_warehouse: holder_type === "Warehouse" ? source_location : "",
 				from_department: holder_type === "Department" ? source_location : "",
@@ -885,14 +1010,15 @@
 
 			this.submitting_move = true;
 			const $submit = this.$main.find("[data-submit]");
-			$submit.prop("disabled", true).text("Submitting...");
+			$submit.prop("disabled", true);
 			this.call("submit_move_asset", { data }).then((result) => {
 				this.last_submit = result;
-				frappe.show_alert({ message: `Submitted ${result.move_asset}`, indicator: "green" });
+				frappe.show_alert({ message: `Submitted ${result.move_asset}`, indicator: "green" }, 3.4);
 				this.reset_move_form("");
 				this.$main.find("[data-submit-message]").html(`
 					<div class="fac-success">Submitted <a href="/app/move-asset/${encodeURIComponent(result.move_asset)}">${this.esc(result.move_asset)}</a>. Dashboard, Asset Bin and Movement History will load updated data when opened.</div>
 				`);
+				setTimeout(() => this.$main.find("[data-submit-message]").empty(), 3400);
 			}).finally(() => {
 				this.submitting_move = false;
 				$submit.prop("disabled", false).text("Submit Movement");
@@ -945,6 +1071,18 @@
 			return parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : value;
 		}
 
+		datetime(value) {
+			if (!value) return "-";
+			if (frappe.datetime && frappe.datetime.str_to_user) return frappe.datetime.str_to_user(value);
+			return String(value);
+		}
+
+		user_display(user) {
+			if (!user) return "-";
+			const info = frappe.user_info && frappe.user_info(user);
+			return (info && (info.fullname || info.full_name)) || user;
+		}
+
 		money(value) {
 			return frappe.format(this.num(value), { fieldtype: "Currency" });
 		}
@@ -985,7 +1123,7 @@
 				.fac-primary{background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%);color:#fff;border:0;border-radius:12px;padding:12px 22px;font-weight:650;box-shadow:0 14px 28px rgba(245,158,11,.22);transition:transform .16s ease,box-shadow .16s ease}.fac-primary:hover{transform:translateY(-1px);box-shadow:0 18px 34px rgba(245,158,11,.28)}.fac-card{background:rgba(255,255,255,.94);border:1px solid #e8e2d8;border-radius:18px;padding:22px;box-shadow:0 14px 34px rgba(15,23,42,.06);backdrop-filter:saturate(130%) blur(4px);overflow-x:auto}
 				.fac-card-header h2{font-size:20px;margin:0 0 5px;font-weight:650}.fac-card-header p{margin:0 0 18px;color:#53627c}.fac-row{display:flex;justify-content:space-between;align-items:center}
 				.fac-filter-box{display:grid;width:100%;grid-template-columns:minmax(170px,1.25fr) minmax(150px,1fr) minmax(170px,1.2fr) minmax(150px,1fr) minmax(150px,1fr) minmax(92px,auto);gap:12px;align-items:end;border:1px solid #e8e2d8;border-radius:18px;padding:16px;background:rgba(255,255,255,.9);box-shadow:0 12px 28px rgba(15,23,42,.05);margin-bottom:18px}.fac-filter .form-group{margin-bottom:0}.fac-filter .control-label,.fac-form-grid .control-label{font-size:11px;font-weight:650;color:#53627c;text-transform:none}.fac-filter .form-control,.fac-form-grid .form-control{border-radius:12px;height:44px;border:1px solid #e5ded4;background:#fff}
-				.fac-clear{height:44px;border:1px solid #e8e2d8;background:#fff;border-radius:12px;padding:0 18px;font-weight:650;box-shadow:0 8px 18px rgba(15,23,42,.04)}.fac-filter-box>.fac-clear{align-self:end;width:100%;min-width:82px;margin:0}.fac-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;margin-bottom:18px}.fac-metric{background:linear-gradient(180deg,#fff 0%,#f8fbff 100%);border:1px solid #e8e2d8;border-radius:18px;padding:21px;display:flex;justify-content:space-between;text-align:left;box-shadow:0 12px 28px rgba(15,23,42,.06);cursor:default}.fac-metric p{color:#53627c;font-weight:650;margin:0 0 8px}.fac-metric strong{font-size:30px;line-height:1}.fac-metric small{display:block;color:#53627c;margin-top:10px}.fac-metric span,.fac-chip{height:26px;padding:5px 12px;border-radius:999px;background:#e8f8ef;color:#047333;font-weight:650;font-size:12px}
+				.fac-hidden{display:none!important}.fac-clear{height:44px;border:1px solid #e8e2d8;background:#fff;border-radius:12px;padding:0 18px;font-weight:650;box-shadow:0 8px 18px rgba(15,23,42,.04)}.fac-filter-box>.fac-clear{align-self:end;width:100%;min-width:82px;margin:0}.fac-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;margin-bottom:18px}.fac-metric{background:linear-gradient(180deg,#fff 0%,#f8fbff 100%);border:1px solid #e8e2d8;border-radius:18px;padding:21px;display:flex;justify-content:space-between;text-align:left;box-shadow:0 12px 28px rgba(15,23,42,.06);cursor:default}.fac-metric p{color:#53627c;font-weight:650;margin:0 0 8px}.fac-metric strong{font-size:30px;line-height:1}.fac-metric small{display:block;color:#53627c;margin-top:10px}.fac-metric span,.fac-chip{height:26px;padding:5px 12px;border-radius:999px;background:#e8f8ef;color:#047333;font-weight:650;font-size:12px}
 				.fac-grid{display:grid;width:100%;grid-template-columns:minmax(0,1.45fr) minmax(360px,1fr);gap:18px}.fac-table{width:100%;min-width:720px;border-collapse:separate;border-spacing:0}.fac-table th{font-size:12px;text-transform:uppercase;color:#53627c;background:#f8fafc;border-bottom:1px solid #e8e2d8;padding:15px 12px;position:sticky;top:0;z-index:1}.fac-table td{border-bottom:1px solid #eee7dd;padding:14px 12px;vertical-align:middle}.fac-table tbody tr{transition:background .14s ease}.fac-table tbody tr:hover{background:#f8fbff}.fac-link{font-weight:650;color:#b45309;text-decoration:none}.fac-link:hover{text-decoration:underline}.fac-source{color:#92400e;font-weight:750}.fac-status{display:inline-block;background:#dcfce7;color:#047333;border-radius:999px;padding:4px 10px;font-weight:650;font-size:12px}.fac-muted{text-align:center;color:#68758b;padding:30px!important}.fac-small{font-size:12px;color:#53627c;margin-top:3px}.fac-row-btn{border:1px solid #e8e2d8;background:#fff;border-radius:11px;padding:8px 16px;font-weight:650;box-shadow:0 8px 18px rgba(15,23,42,.04)}
 				.fac-move-layout{display:grid;grid-template-columns:minmax(0,1fr) 410px;gap:20px}.fac-section{border:1px solid #e8e2d8;border-radius:16px;padding:17px;margin-top:16px;background:linear-gradient(180deg,#fff 0%,#fbfdff 100%)}.fac-section h3{margin:0 0 14px;font-size:16px;font-weight:650;display:flex;justify-content:space-between}.fac-section h3 span{background:#fff7ed;color:#b45309;border-radius:999px;padding:4px 10px}.fac-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:13px;align-items:start}.fac-from-qty-row{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:13px;align-items:start}.fac-wide{grid-column:1/-1}.fac-read{border:0;border-radius:0;padding:0;background:transparent;min-height:0}.fac-read label,.fac-ref-box label,.fac-dark label{display:block;font-size:11px;font-weight:650;color:#53627c;margin-bottom:7px}.fac-read strong{display:flex;align-items:center;min-height:44px;border:1px solid #e5ded4;border-radius:12px;background:#fff;padding:10px 12px;font-weight:650}.fac-summary{display:flex;gap:8px;flex-wrap:wrap;border:1px dashed #94b6ff;background:#f8fbff;border-radius:14px;padding:13px;margin-top:16px}.fac-summary span{border:1px solid #e8e2d8;background:#fff;border-radius:10px;padding:8px 11px;font-weight:650}.fac-actions{display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-top:15px}.fac-ref{height:max-content;position:sticky;top:18px}.fac-ref-box{border:1px solid #adc2ff;background:#edf3ff;border-radius:14px;padding:15px;margin-bottom:12px}.fac-ref-box a{color:#92400e;text-decoration:none}.fac-ref-box a:hover{text-decoration:underline}.fac-dark{background:linear-gradient(135deg,#101827 0%,#17233a 100%);color:#fff;border-radius:16px;padding:19px;display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px;box-shadow:0 18px 30px rgba(15,23,42,.22)}.fac-dark strong{font-size:23px}.fac-note{border:1px solid #e8e2d8;background:#fff;border-radius:14px;padding:12px;font-weight:750;color:#53627c}
 				.fac-source-list{display:flex;flex-direction:column;gap:9px;margin-bottom:13px}.fac-source-row{display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;width:100%;border:1px solid #e8e2d8;background:#fff;border-radius:13px;text-align:left;padding:13px;transition:background .16s ease,border-color .16s ease,box-shadow .16s ease}.fac-source-row.active,.fac-source-row:hover{border-color:#6694ff;background:#edf3ff;box-shadow:inset 4px 0 0 #2563eb}.fac-source-row small{display:block;color:#53627c;margin-top:4px}.fac-source-row em{font-style:normal;background:#eefcf5;color:#047333;border-radius:999px;padding:5px 11px;font-weight:650;font-size:12px}.fac-source-row em:last-child{background:#fff4e5;color:#b45309}.fac-empty-source{border:1px dashed #e8e2d8;border-radius:13px;padding:15px;color:#53627c;background:#fff}.fac-success{border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:13px;padding:12px;margin:12px 0;font-weight:650}
