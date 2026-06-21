@@ -879,13 +879,23 @@
 			this.toggle_control_cell(this.form.from_department, holder_type === "Department");
 			if (holder_type === "Warehouse") {
 				this.set_control_value(this.form.from_department, "");
-				this.set_source_location_value(this.form.from_warehouse, details.warehouse || "");
+				this.set_source_location_value(this.form.from_warehouse, details.warehouse || details.from_warehouse || "");
 			} else {
 				this.set_control_value(this.form.from_warehouse, "");
-				this.set_source_location_value(this.form.from_department, details.department || "");
+				this.set_source_location_value(this.form.from_department, details.department || details.from_department || "");
 			}
 			this.applying_asset_source = false;
 			this.set_source(details);
+			const restore_source = () => {
+				if (holder_type === "Warehouse") {
+					this.set_source_location_value(this.form.from_warehouse, details.warehouse || details.from_warehouse || "");
+				} else {
+					this.set_source_location_value(this.form.from_department, details.department || details.from_department || "");
+				}
+				this.set_source(details);
+			};
+			setTimeout(restore_source, 0);
+			setTimeout(restore_source, 120);
 		}
 
 		render_source_rows(rows) {
