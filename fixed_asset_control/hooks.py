@@ -11,3 +11,11 @@ doc_events = {
 		"on_cancel": "fixed_asset_control.fixed_asset_control.purchase_receipt_hooks.remove_purchase_receipt_asset_bins",
 	},
 }
+
+doctype_js = {
+	"Item": "public/item.js",
+}
+
+from fixed_asset_control.fixed_asset_control.purchase_receipt_location_override import apply_patch as _apply_purchase_receipt_asset_location_patch
+
+_apply_purchase_receipt_asset_location_patch()
