@@ -2,6 +2,46 @@ import frappe
 from frappe.utils import flt
 
 
+def _asset_has_field(fieldname):
+	return frappe.get_meta("Asset").has_field(fieldname)
+
+
+def _clean_filters(filters):
+	return {key: value for key, value in filters.items() if value not in (None, "")}
+
+
+def _get_asset_for_purchase_receipt_item(doc, item):
+	direct_asset = item.get("asset")
+	if direct_asset and frappe.db.exists("Asset", direct_asset):
+		return direct_asset
+
+	candidate_filters = []
+	if _asset_has_field("purchase_receipt") and _asset_has_field("purchase_receipt_item"):
+		candidate_filters.append({
+			"purchase_receipt": doc.name,
+			"purchase_receipt_item": item.name,
+		})
+
+	if _asset_has_field("purchase_receipt"):
+		candidate_filters.append({
+			"purchase_receipt": doc.name,
+			"item_code": item.get("item_code"),
+			"company": doc.company,
+		})
+		candidate_filters.append({
+			"purchase_receipt": doc.name,
+			"asset_name": item.get("item_name"),
+			"company": doc.company,
+		})
+
+	for filters in candidate_filters:
+		asset = frappe.db.get_value("Asset", _clean_filters(filters), "name", order_by="creation asc")
+		if asset:
+			return asset
+
+	return None
+
+
 def sync_purchase_receipt_asset_bins(doc, method=None):
 	if doc.doctype != "Purchase Receipt" or doc.docstatus != 1:
 		return
@@ -14,16 +54,12 @@ def sync_purchase_receipt_asset_bins(doc, method=None):
 		if qty <= 0:
 			continue
 
-		asset = frappe.db.get_value(
-			"Asset",
-			{
-				"purchase_receipt": doc.name,
-				"purchase_receipt_item": item.name,
-			},
-			"name",
-			order_by="name asc",
-		)
+		asset = _get_asset_for_purchase_receipt_item(doc, item)
 		if not asset:
+			frappe.log_error(
+				title="Fixed Asset Control: Asset not found for Purchase Receipt Item",
+				message=f"Purchase Receipt: {doc.name}, Item Row: {item.name}, Item Code: {item.get('item_code')}",
+			)
 			continue
 
 		filters = {
