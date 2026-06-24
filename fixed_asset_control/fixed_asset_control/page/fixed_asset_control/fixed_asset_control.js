@@ -199,10 +199,13 @@
 		dashboard_greeting() {
 			const hour = new Date().getHours();
 			const greeting = hour >= 17 ? "Good evening" : hour >= 12 ? "Good afternoon" : hour >= 5 ? "Good morning" : "Good evening";
-			const user = frappe.boot && frappe.boot.user ? frappe.boot.user : {};
-			const raw_name = user.full_name || frappe.session.user || "";
+			const session = frappe.session || {};
+			const boot = frappe.boot || {};
+			const boot_user = typeof boot.user === "object" ? boot.user : {};
+			const user_info = boot.user_info && session.user ? boot.user_info[session.user] || {} : {};
+			const raw_name = session.user_fullname || user_info.fullname || user_info.full_name || boot_user.full_name || session.user || "";
 			const name = raw_name && raw_name !== "Guest" ? raw_name.split("@")[0] : "";
-			return name ? `${greeting}, ${this.esc(name)}.` : `${greeting}.`;
+			return name ? `${greeting}, ${this.esc(name)}` : greeting;
 		}
 
 		dashboard_date_line() {
