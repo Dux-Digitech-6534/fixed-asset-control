@@ -23,6 +23,7 @@
 			this.last_submit = null;
 			this.submitting_move = false;
 			this.selected_filter_asset = "";
+			this.selected_history_rows = new Set();
 			this.page = frappe.ui.make_app_page({ parent: wrapper, title: "", single_column: true });
 			this.make_shell();
 			this.show_screen("dashboard");
@@ -258,15 +259,17 @@
 		}
 
 		render_history() {
+			this.selected_history_rows = new Set();
 			this.$main.html(`
 				${this.header("Movement History", "Submitted asset movements with valuation source, rate and amount.")}
 				<section class="fac-card">
-					<div class="fac-card-header"><h2>Movement History</h2><p>Audit trail with source, target, quantity, rate, amount and reference.</p></div>
+					<div class="fac-card-header fac-row"><div><h2>Movement History</h2><p>Audit trail with source, target, quantity, rate, amount and reference.</p></div><div class="fac-history-tools"><span class="fac-history-count" data-history-count>0 entries</span><button type="button" class="fac-row-btn fac-hidden" data-history-export>Excel</button></div></div>
 					<div class="fac-filter-box" data-filter-box></div>
-					<table class="fac-table"><thead><tr><th>Date</th><th>Asset</th><th>Qty</th><th>From</th><th>To</th><th>Remarks</th><th>Submitted By</th><th>Source</th><th>Rate</th><th>Amount</th></tr></thead><tbody data-history-rows></tbody></table>
+					<table class="fac-table"><thead><tr><th><input type="checkbox" data-history-select-all></th><th>Date</th><th>Asset</th><th>Qty</th><th>From</th><th>To</th><th>Remarks</th><th>Submitted By</th><th>Source</th><th>Rate</th><th>Amount</th><th>Print</th></tr></thead><tbody data-history-rows></tbody></table>
 				</section>
 			`);
 			this.bind_header_actions();
+			this.bind_history_actions();
 			this.make_filters(() => this.load_history(), true, { dynamic_location: true });
 			this.load_history();
 		}
@@ -583,10 +586,127 @@
 		load_history() {
 			this.call("get_movement_history", { filters: this.filters() }).then((rows) => {
 				this.history_rows = rows || [];
-				this.$main.find("[data-history-rows]").html(this.history_rows.map((row) => `
-					<tr><td>${this.date(row.posting_date)}</td><td>${this.esc(row.asset_name || row.asset)}</td><td>${row.qty}</td><td>${this.esc(row.from_location_display)}</td><td>${this.esc(row.to_location_display)}</td><td>${this.esc(row.remarks || "-")}</td><td>${this.esc(row.submitted_by || row.submitted_by_user || "-")}</td><td>${this.source_link(row)}</td><td>${this.money(row.rate)}</td><td>${this.money(row.amount)}</td></tr>
-				`).join("") || this.empty(10));
+				this.selected_history_rows = new Set();
+				this.$main.find("[data-history-select-all]").prop("checked", false);
+				this.$main.find("[data-history-rows]").html(this.history_rows.map((row, index) => `
+					<tr><td><input type="checkbox" data-history-select="${index}"></td><td>${this.date(row.posting_date)}</td><td>${this.esc(row.asset_name || row.asset)}</td><td>${row.qty}</td><td>${this.esc(row.from_location_display)}</td><td>${this.esc(row.to_location_display)}</td><td>${this.esc(row.remarks || "-")}</td><td>${this.esc(row.submitted_by || row.submitted_by_user || "-")}</td><td>${this.source_link(row)}</td><td>${this.money(row.rate)}</td><td>${this.money(row.amount)}</td><td><button type="button" class="fac-row-btn" data-history-print-row="${index}">Print</button></td></tr>
+				`).join("") || this.empty(12));
+				this.update_history_selection_state();
 			});
+		}
+
+		bind_history_actions() {
+			this.$main.off(".facHistory");
+			this.$main.on("change.facHistory", "[data-history-select-all]", (event) => {
+				const checked = $(event.currentTarget).is(":checked");
+				this.selected_history_rows = new Set();
+				this.$main.find("[data-history-select]").each((_, input) => {
+					$(input).prop("checked", checked);
+					if (checked) this.selected_history_rows.add(parseInt($(input).data("history-select"), 10));
+				});
+				this.update_history_selection_state();
+			});
+			this.$main.on("change.facHistory", "[data-history-select]", (event) => {
+				const index = parseInt($(event.currentTarget).data("history-select"), 10);
+				if ($(event.currentTarget).is(":checked")) this.selected_history_rows.add(index);
+				else this.selected_history_rows.delete(index);
+				this.$main.find("[data-history-select-all]").prop("checked", this.history_rows.length > 0 && this.selected_history_rows.size === this.history_rows.length);
+				this.update_history_selection_state();
+			});
+			this.$main.on("click.facHistory", "[data-history-export]", () => this.export_selected_history());
+			this.$main.on("click.facHistory", "[data-history-print-row]", (event) => {
+				const index = parseInt($(event.currentTarget).data("history-print-row"), 10);
+				const row = this.history_rows[index];
+				if (!row) return;
+				if (row.move_asset || row.name) {
+					window.open(`/printview?doctype=Move%20Asset&name=${encodeURIComponent(row.move_asset || row.name)}&format=FAC%20Asset%20Movement%20Print&no_letterhead=1`, "_blank");
+					return;
+				}
+				this.print_history_rows([row]);
+			});
+		}
+
+		selected_history() {
+			return Array.from(this.selected_history_rows).sort((a, b) => a - b).map((index) => this.history_rows[index]).filter(Boolean);
+		}
+
+		update_history_selection_state() {
+			const total = (this.history_rows || []).length;
+			const selected = this.selected_history_rows ? this.selected_history_rows.size : 0;
+			this.$main.find("[data-history-count]").text(selected ? `${selected} of ${total} Selected` : `${total} Entry`);
+			this.$main.find("[data-history-export]").toggleClass("fac-hidden", selected === 0);
+		}
+
+		export_selected_history() {
+			const rows = this.selected_history();
+			if (!rows.length) {
+				frappe.msgprint("Please select Movement History rows for Excel export.");
+				return;
+			}
+			const headers = ["Date", "Asset", "Qty", "From", "To", "Remarks", "Submitted By", "Source", "Rate", "Amount"];
+			const body = rows.map((row) => [
+				this.date(row.posting_date),
+				row.asset_name || row.asset || "",
+				row.qty || 0,
+				row.from_location_display || "",
+				row.to_location_display || "",
+				row.remarks || "",
+				row.submitted_by || row.submitted_by_user || "",
+				row.purchase_receipt || row.source_id || "",
+				this.num(row.rate),
+				this.num(row.amount),
+			]);
+			const csv = [headers, ...body].map((line) => line.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+			this.download_file(`movement-history-${frappe.datetime.now_date()}.csv`, "text/csv;charset=utf-8", csv);
+		}
+
+		print_history_rows(rows) {
+			if (!rows.length) return;
+			const pages = rows.map((row) => this.history_print_entry(row)).join("");
+			const html = `<!doctype html><html><head><title>Asset Movement Print</title><style>
+				body{font-family:Arial,sans-serif;color:#000;margin:0;background:#fff;font-size:12px}.print-page{width:760px;margin:26px auto 60px;page-break-after:always}.print-head{display:flex;align-items:center;justify-content:center;gap:24px;margin-bottom:26px}.print-head img{width:120px;max-height:70px;object-fit:contain}.print-org{text-align:center;font-weight:700;font-size:14px;line-height:1.4}.print-line{border-top:2px solid #111;margin:0 0 18px}.print-title{text-align:center;font-weight:700;font-size:14px;margin:0 0 16px}.print-grid{width:100%;border-collapse:collapse;margin-bottom:14px}.print-grid th,.print-grid td{border:1px solid #bdbdbd;padding:10px 12px;text-align:center;vertical-align:middle}.print-grid th{background:#f0f0f0;color:#34405a;text-transform:uppercase;font-size:10px;font-weight:700}.print-grid td{font-size:11px}.print-items td:first-child{text-align:left;font-weight:700}.print-footer{display:flex;justify-content:space-between;margin-top:44px;border-top:1px solid #777;padding-top:10px;font-size:11px}.print-actions{text-align:right;margin:18px auto;width:760px}.print-actions button{padding:8px 18px;border:1px solid #ccc;border-radius:8px;background:#fff;font-weight:700;cursor:pointer}@media print{.print-actions{display:none}.print-page{margin:20px auto;page-break-after:always}}
+			</style></head><body><div class="print-actions"><button onclick="window.print()">Print</button></div>${pages}<script>setTimeout(function(){window.print()},300)</script></body></html>`;
+			const print_window = window.open("", "_blank");
+			if (!print_window) {
+				frappe.msgprint("Please allow pop-ups to print Movement History.");
+				return;
+			}
+			print_window.document.open();
+			print_window.document.write(html);
+			print_window.document.close();
+		}
+
+		history_print_entry(row) {
+			const movementNo = this.esc(row.name || row.move_asset || "-");
+			const asset = this.esc(row.asset_name || row.asset || "-");
+			const source = this.esc(row.purchase_receipt || row.source_id || "-");
+			const submittedBy = this.esc(row.submitted_by || row.submitted_by_user || frappe.session.user || "-");
+			const company = this.esc(row.company || frappe.defaults.get_default("company") || "Fixed Asset Control");
+			const department = this.esc(row.from_holder_type === "Department" ? row.from_department : (row.to_holder_type === "Department" ? row.to_department : "-"));
+			const date = this.date(row.posting_date || frappe.datetime.get_today());
+			const from = this.esc(row.from_location_display || "-");
+			const to = this.esc(row.to_location_display || "-");
+			const remarks = this.esc(row.remarks || "-");
+			return `<section class="print-page">
+				<div class="print-head"><div class="print-org">${company}<br>Fixed Asset Control</div></div>
+				<div class="print-line"></div><div class="print-title">ASSET MOVEMENT</div>
+				<table class="print-grid"><tr><th>Username</th><th>Department</th><th>Entry Type</th><th>Posting Date</th></tr><tr><td>${submittedBy}</td><td>${department}</td><td>Asset Movement</td><td>${date}</td></tr></table>
+				<table class="print-grid"><tr><th>Movement No</th><th>Source ID</th><th>Status</th></tr><tr><td>${movementNo}</td><td>${source}</td><td>${this.esc(row.status || "Submitted")}</td></tr></table>
+				<table class="print-grid"><tr><th>From Location</th><th>To Location</th><th>Remark</th></tr><tr><td>${from}</td><td>${to}</td><td>${remarks}</td></tr></table>
+				<table class="print-grid print-items"><tr><th>Asset</th><th>Quantity</th><th>Rate</th><th>Amount</th></tr><tr><td>${asset}</td><td>${this.esc(row.qty || 0)}</td><td>${this.money(row.rate || 0)}</td><td>${this.money(row.amount || 0)}</td></tr></table>
+				<div class="print-footer"><div><strong>Issued By</strong><br>${submittedBy}</div><div><strong>Date</strong><br>${this.date(frappe.datetime.get_today())}</div></div>
+			</section>`;
+		}
+
+		download_file(filename, type, content) {
+			const blob = new Blob([content], { type });
+			const link = document.createElement("a");
+			link.href = URL.createObjectURL(blob);
+			link.download = filename;
+			document.body.appendChild(link);
+			link.click();
+			URL.revokeObjectURL(link.href);
+			link.remove();
 		}
 
 		render_bin_rows(rows, target, action) {
@@ -1138,7 +1258,7 @@
 				.fac-mobile-toggle,.fac-sidebar-overlay,.fac-sidebar-close,.fac-shell-menu{display:none}
 				.fac-main{flex:1;min-width:0;width:calc(100vw - 260px);padding:32px;overflow:auto}.fac-page-title{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px}.fac-page-title h1{font-size:30px;margin:0 0 8px;font-weight:650;letter-spacing:0}.fac-page-title p{margin:0;color:#53627c;font-size:15px}.fac-greeting{margin:-4px 0 18px;color:#475569;font-size:15px;font-weight:500}.fac-hero{display:flex;align-items:center;justify-content:space-between;gap:22px;background:linear-gradient(135deg,#101827 0%,#17233a 100%);color:#fff;border-radius:18px;padding:28px 30px;margin-bottom:22px;box-shadow:0 16px 34px rgba(15,23,42,.12)}.fac-hero-date{color:#f59e0b;text-transform:uppercase;letter-spacing:.14em;font-size:12px;font-weight:700;margin-bottom:10px}.fac-hero h1{font-size:29px;line-height:1.2;margin:0 0 8px;font-weight:650;color:#fff!important}.fac-hero p{margin:0;color:#dbeafe!important;font-size:15px}.fac-hero .fac-primary{box-shadow:none;white-space:nowrap}
 				.fac-primary{background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%);color:#fff;border:0;border-radius:12px;padding:12px 22px;font-weight:650;box-shadow:0 14px 28px rgba(245,158,11,.22);transition:transform .16s ease,box-shadow .16s ease}.fac-primary:hover{transform:translateY(-1px);box-shadow:0 18px 34px rgba(245,158,11,.28)}.fac-card{background:rgba(255,255,255,.94);border:1px solid #e8e2d8;border-radius:18px;padding:22px;box-shadow:0 14px 34px rgba(15,23,42,.06);backdrop-filter:saturate(130%) blur(4px);overflow-x:auto}
-				.fac-card-header h2{font-size:20px;margin:0 0 5px;font-weight:650}.fac-card-header p{margin:0 0 18px;color:#53627c}.fac-row{display:flex;justify-content:space-between;align-items:center}
+				.fac-card-header h2{font-size:20px;margin:0 0 5px;font-weight:650}.fac-card-header p{margin:0 0 18px;color:#53627c}.fac-row{display:flex;justify-content:space-between;align-items:center;gap:12px}.fac-toolbar,.fac-history-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.fac-history-count{font-size:13px;font-weight:800;color:#475569;background:#f8fafc;border:1px solid var(--fac-line);border-radius:999px;padding:8px 12px}
 				.fac-filter-box{display:grid;width:100%;grid-template-columns:minmax(170px,1.25fr) minmax(150px,1fr) minmax(170px,1.2fr) minmax(150px,1fr) minmax(150px,1fr) minmax(92px,auto);gap:12px;align-items:end;border:1px solid #e8e2d8;border-radius:18px;padding:16px;background:rgba(255,255,255,.9);box-shadow:0 12px 28px rgba(15,23,42,.05);margin-bottom:18px}.fac-filter .form-group{margin-bottom:0}.fac-filter .control-label,.fac-form-grid .control-label{font-size:11px;font-weight:650;color:#53627c;text-transform:none}.fac-filter .form-control,.fac-form-grid .form-control{border-radius:12px;height:44px;border:1px solid #e5ded4;background:#fff}
 				.fac-hidden{display:none!important}.fac-clear{height:44px;border:1px solid #e8e2d8;background:#fff;border-radius:12px;padding:0 18px;font-weight:650;box-shadow:0 8px 18px rgba(15,23,42,.04)}.fac-filter-box>.fac-clear{align-self:end;width:100%;min-width:82px;margin:0}.fac-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;margin-bottom:18px}.fac-metric{background:linear-gradient(180deg,#fff 0%,#f8fbff 100%);border:1px solid #e8e2d8;border-radius:18px;padding:21px;display:flex;justify-content:space-between;text-align:left;box-shadow:0 12px 28px rgba(15,23,42,.06);cursor:default}.fac-metric p{color:#53627c;font-weight:650;margin:0 0 8px}.fac-metric strong{font-size:30px;line-height:1}.fac-metric small{display:block;color:#53627c;margin-top:10px}.fac-metric span,.fac-chip{height:26px;padding:5px 12px;border-radius:999px;background:#e8f8ef;color:#047333;font-weight:650;font-size:12px}
 				.fac-grid{display:grid;width:100%;grid-template-columns:minmax(0,1.45fr) minmax(360px,1fr);gap:18px}.fac-table{width:100%;min-width:720px;border-collapse:separate;border-spacing:0}.fac-table th{font-size:12px;text-transform:uppercase;color:#53627c;background:#f8fafc;border-bottom:1px solid #e8e2d8;padding:15px 12px;position:sticky;top:0;z-index:1}.fac-table td{border-bottom:1px solid #eee7dd;padding:14px 12px;vertical-align:middle}.fac-table tbody tr{transition:background .14s ease}.fac-table tbody tr:hover{background:#f8fbff}.fac-link{font-weight:650;color:#b45309;text-decoration:none}.fac-link:hover{text-decoration:underline}.fac-source{color:#92400e;font-weight:750}.fac-status{display:inline-block;background:#dcfce7;color:#047333;border-radius:999px;padding:4px 10px;font-weight:650;font-size:12px}.fac-muted{text-align:center;color:#68758b;padding:30px!important}.fac-small{font-size:12px;color:#53627c;margin-top:3px}.fac-row-btn{border:1px solid #e8e2d8;background:#fff;border-radius:11px;padding:8px 16px;font-weight:650;box-shadow:0 8px 18px rgba(15,23,42,.04)}
@@ -1149,7 +1269,7 @@
 				@media(max-width:1100px){.fac-filter-box{grid-template-columns:1fr}.fac-form-grid,.fac-from-qty-row{grid-template-columns:1fr}.fac-ref{position:relative;top:auto}}
 				@media(max-width:700px){.fac-metrics{grid-template-columns:1fr}.fac-source-row{grid-template-columns:1fr}.fac-page-title{display:block}.fac-page-title .fac-primary{margin-top:14px;width:100%}}
 				@media(min-width:769px){.fac-sidebar-close{display:none!important}}
-				@media(max-width:768px){.fac-app{display:block;position:relative}.fac-mobile-toggle{display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:12px;border:1px solid #d8e0ef;background:#fff;font-size:22px;font-weight:800;flex:0 0 42px}.fac-shell-menu{display:inline-flex;position:absolute;top:16px;left:16px;z-index:5}.fac-sidebar-toggle{display:none}.fac-sidebar{position:fixed!important;top:0!important;left:-290px!important;width:280px!important;height:100vh!important;min-height:100vh!important;z-index:10000;transition:left .25s ease;overflow-y:auto}.fac-app.fac-sidebar-open .fac-sidebar{left:0!important}.fac-sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999}.fac-app.fac-sidebar-open .fac-sidebar-overlay{display:block}.fac-sidebar-close{display:inline-flex;align-items:center;justify-content:center;position:absolute;top:12px;right:12px;width:34px;height:34px;border:0;border-radius:10px;background:rgba(255,255,255,.12);color:#fff;font-size:24px;line-height:1}.fac-main{width:100%;padding:16px}.fac-page-title{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap}.fac-title-copy{flex:1;min-width:0}.fac-page-title h1{font-size:30px}.fac-page-title .fac-primary{width:100%;margin-top:8px}.fac-hero{display:block;padding:64px 22px 22px}.fac-hero .fac-primary{width:100%;margin-top:18px}.fac-filter-box,.fac-metrics,.fac-grid,.fac-move-layout{grid-template-columns:1fr!important}.fac-actions{justify-content:stretch}.fac-actions .fac-clear,.fac-actions .fac-primary{flex:1}.fac-card{width:100%}.fac-table{min-width:720px}}
+				@media(max-width:768px){.fac-app{display:block;position:relative}.fac-mobile-toggle{display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:12px;border:1px solid #d8e0ef;background:#fff;font-size:22px;font-weight:800;flex:0 0 42px}.fac-shell-menu{display:inline-flex;position:absolute;top:16px;left:16px;z-index:5}.fac-sidebar-toggle{display:none}.fac-sidebar{position:fixed!important;top:0!important;left:-290px!important;width:280px!important;height:100vh!important;min-height:100vh!important;z-index:10000;transition:left .25s ease;overflow-y:auto}.fac-app.fac-sidebar-open .fac-sidebar{left:0!important}.fac-sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999}.fac-app.fac-sidebar-open .fac-sidebar-overlay{display:block}.fac-sidebar-close{display:inline-flex;align-items:center;justify-content:center;position:absolute;top:12px;right:12px;width:34px;height:34px;border:0;border-radius:10px;background:rgba(255,255,255,.12);color:#fff;font-size:24px;line-height:1}.fac-main{width:100%;padding:16px}.fac-page-title{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap}.fac-title-copy{flex:1;min-width:0}.fac-page-title h1{font-size:30px}.fac-page-title .fac-primary{width:100%;margin-top:8px}.fac-hero{display:block;padding:64px 22px 22px}.fac-hero .fac-primary{width:100%;margin-top:18px}.fac-filter-box,.fac-metrics,.fac-grid,.fac-move-layout{grid-template-columns:1fr!important}.fac-actions{justify-content:stretch}.fac-actions .fac-clear,.fac-actions .fac-primary{flex:1}.fac-card{width:100%}.fac-table{min-width:900px}}
 			</style>`).appendTo("head");
 		}
 	}

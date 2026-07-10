@@ -292,6 +292,7 @@ def get_movement_history(filters=None):
 			"name",
 			"posting_date",
 			"asset_name",
+			"company",
 			"from_holder_type",
 			"from_warehouse",
 			"from_department",
@@ -330,11 +331,19 @@ def get_movement_history(filters=None):
 				continue
 		out.append(
 			{
+				"name": row.name,
 				"posting_date": row.posting_date,
+				"company": row.company,
 				"asset": row.asset_name,
 				"asset_name": _asset_title(row.asset_name),
 				"move_asset": row.name,
 				"qty": flt(row.move_qty),
+				"from_holder_type": row.from_holder_type,
+				"from_warehouse": row.from_warehouse,
+				"from_department": row.from_department,
+				"to_holder_type": row.to_holder_type,
+				"to_warehouse": row.to_warehouse,
+				"to_department": row.to_department,
 				"from_location_display": from_location,
 				"to_location_display": to_location,
 				"remarks": row.remarks or "",
