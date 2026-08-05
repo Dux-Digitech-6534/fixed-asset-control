@@ -26,7 +26,18 @@
 			this.selected_history_rows = new Set();
 			this.page = frappe.ui.make_app_page({ parent: wrapper, title: "", single_column: true });
 			this.make_shell();
-			this.show_screen("dashboard");
+			this.show_screen(this.get_initial_screen());
+		}
+
+		get_initial_screen() {
+			const params = new URLSearchParams(window.location.search);
+			const screen = params.get("fac_screen");
+			if (params.has("fac_screen")) {
+				const url = new URL(window.location.href);
+				url.searchParams.delete("fac_screen");
+				window.history.replaceState({}, "", url.toString());
+			}
+			return ["dashboard", "move", "bin", "history"].includes(screen) ? screen : "dashboard";
 		}
 
 		make_shell() {
@@ -265,7 +276,7 @@
 				<section class="fac-card">
 					<div class="fac-card-header fac-row"><div><h2>Movement History</h2><p>Audit trail with source, target, quantity, rate, amount and reference.</p></div><div class="fac-history-tools"><span class="fac-history-count" data-history-count>0 entries</span><button type="button" class="fac-row-btn fac-hidden" data-history-export>Excel</button></div></div>
 					<div class="fac-filter-box" data-filter-box></div>
-					<table class="fac-table"><thead><tr><th><input type="checkbox" data-history-select-all></th><th>Date</th><th>Asset</th><th>Qty</th><th>From</th><th>To</th><th>Remarks</th><th>Submitted By</th><th>Source</th><th>Rate</th><th>Amount</th><th>Print</th></tr></thead><tbody data-history-rows></tbody></table>
+					<table class="fac-table"><thead><tr><th><input type="checkbox" data-history-select-all></th><th>Date</th><th>Company</th><th>Asset</th><th>Qty</th><th>From</th><th>To</th><th>Remarks</th><th>Submitted By</th><th>Source</th><th>Rate</th><th>Amount</th><th>Print</th></tr></thead><tbody data-history-rows></tbody></table>
 				</section>
 			`);
 			this.bind_header_actions();
@@ -589,8 +600,8 @@
 				this.selected_history_rows = new Set();
 				this.$main.find("[data-history-select-all]").prop("checked", false);
 				this.$main.find("[data-history-rows]").html(this.history_rows.map((row, index) => `
-					<tr><td><input type="checkbox" data-history-select="${index}"></td><td>${this.date(row.posting_date)}</td><td>${this.esc(row.asset_name || row.asset)}</td><td>${row.qty}</td><td>${this.esc(row.from_location_display)}</td><td>${this.esc(row.to_location_display)}</td><td>${this.esc(row.remarks || "-")}</td><td>${this.esc(row.submitted_by || row.submitted_by_user || "-")}</td><td>${this.source_link(row)}</td><td>${this.money(row.rate)}</td><td>${this.money(row.amount)}</td><td><button type="button" class="fac-row-btn" data-history-print-row="${index}">Print</button></td></tr>
-				`).join("") || this.empty(12));
+					<tr><td><input type="checkbox" data-history-select="${index}"></td><td>${this.date(row.posting_date)}</td><td>${this.esc(row.company)}</td><td>${this.esc(row.asset_name || row.asset)}</td><td>${row.qty}</td><td>${this.esc(row.from_location_display)}</td><td>${this.esc(row.to_location_display)}</td><td>${this.esc(row.remarks || "-")}</td><td>${this.esc(row.submitted_by || row.submitted_by_user || "-")}</td><td>${this.source_link(row)}</td><td>${this.money(row.rate)}</td><td>${this.money(row.amount)}</td><td><button type="button" class="fac-row-btn" data-history-print-row="${index}">Print</button></td></tr>
+				`).join("") || this.empty(13));
 				this.update_history_selection_state();
 			});
 		}
@@ -640,12 +651,13 @@
 		export_selected_history() {
 			const rows = this.selected_history();
 			if (!rows.length) {
-				frappe.msgprint("Please select Movement History rows for Excel export.");
+				frappe.show_alert({ message: "Please select Movement History rows for Excel export.", indicator: "orange" });
 				return;
 			}
-			const headers = ["Date", "Asset", "Qty", "From", "To", "Remarks", "Submitted By", "Source", "Rate", "Amount"];
+			const headers = ["Date", "Company", "Asset", "Qty", "From", "To", "Remarks", "Submitted By", "Source", "Rate", "Amount"];
 			const body = rows.map((row) => [
 				this.date(row.posting_date),
+				row.company || "",
 				row.asset_name || row.asset || "",
 				row.qty || 0,
 				row.from_location_display || "",
@@ -668,7 +680,7 @@
 			</style></head><body><div class="print-actions"><button onclick="window.print()">Print</button></div>${pages}<script>setTimeout(function(){window.print()},300)</script></body></html>`;
 			const print_window = window.open("", "_blank");
 			if (!print_window) {
-				frappe.msgprint("Please allow pop-ups to print Movement History.");
+				frappe.show_alert({ message: "Please allow pop-ups to print Movement History.", indicator: "orange" });
 				return;
 			}
 			print_window.document.open();
@@ -923,7 +935,7 @@
 		search_asset_bins(txt) {
 			const company = this.form.company.get_value();
 			if (!company) {
-				frappe.msgprint("Please select Company first.");
+				frappe.show_alert({ message: "Please select Company first.", indicator: "orange" });
 				this.set_control_value(this.form.asset_name, "");
 				return;
 			}
@@ -1118,15 +1130,15 @@
 			const move_qty = this.num(this.form.move_qty.get_value());
 
 			if (!this.form.company.get_value() || !this.selected_asset || !source_location || !to_location || move_qty <= 0) {
-				frappe.msgprint("Please select asset, source, target and move quantity.");
+				frappe.show_alert({ message: "Please select asset, source, target and move quantity.", indicator: "orange" });
 				return;
 			}
 			if (move_qty > this.num(this.source.available_qty_at_source)) {
-				frappe.msgprint("Move Qty cannot be greater than Available Qty at Source.");
+				frappe.show_alert({ message: "Move Qty cannot be greater than Available Qty at Source.", indicator: "orange" });
 				return;
 			}
 			if (holder_type === to_type && source_location === to_location) {
-				frappe.msgprint("From and To location cannot be same.");
+				frappe.show_alert({ message: "From and To location cannot be same.", indicator: "orange" });
 				return;
 			}
 
@@ -1151,11 +1163,16 @@
 			this.call("submit_move_asset", { data }).then((result) => {
 				this.last_submit = result;
 				frappe.show_alert({ message: `Submitted ${result.move_asset}`, indicator: "green" }, 3.4);
-				this.reset_move_form("");
 				this.$main.find("[data-submit-message]").html(`
-					<div class="fac-success">Submitted <a href="/app/move-asset/${encodeURIComponent(result.move_asset)}">${this.esc(result.move_asset)}</a>. Dashboard, Asset Bin and Movement History will load updated data when opened.</div>
+					<div class="fac-success">Submitted <a href="/app/move-asset/${encodeURIComponent(result.move_asset)}">${this.esc(result.move_asset)}</a>. Refreshing for the next entry...</div>
 				`);
-				setTimeout(() => this.$main.find("[data-submit-message]").empty(), 3400);
+				// Full reload guarantees a clean form state for the next entry;
+				// lands back on Move Asset via the fac_screen query param.
+				setTimeout(() => {
+					const url = new URL(window.location.href);
+					url.searchParams.set("fac_screen", "move");
+					window.location.href = url.toString();
+				}, 1100);
 			}).finally(() => {
 				this.submitting_move = false;
 				$submit.prop("disabled", false).text("Submit Movement");
