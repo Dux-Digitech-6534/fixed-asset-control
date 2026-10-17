@@ -1,7 +1,8 @@
 import json
+from collections import defaultdict
 
 import frappe
-from frappe.utils import flt, nowdate
+from frappe.utils import cint, flt, getdate, nowdate
 
 
 def _filters(filters):
@@ -10,13 +11,32 @@ def _filters(filters):
 	return filters or {}
 
 
-def _date_filters(filters):
-	out = []
-	if filters.get("from_date"):
-		out.append(["posting_date", ">=", filters["from_date"]])
-	if filters.get("to_date"):
-		out.append(["posting_date", "<=", filters["to_date"]])
-	return out
+def _clean_location(value):
+	value = (value or "").strip()
+	for prefix in ("Warehouse:", "Department:"):
+		if value.startswith(prefix):
+			value = value[len(prefix) :].strip()
+	return value
+
+
+def _asset_ids_matching(txt):
+	like = f"%{txt}%"
+	return frappe.db.sql_list(
+		"select name from `tabAsset` where name like %(like)s or asset_name like %(like)s",
+		{"like": like},
+	)
+
+
+def _location_matches(filters, holder_type, location):
+	"""Python-side location filter shared by the ledger; mirrors the SQL filters."""
+	if filters.get("holder_type") and holder_type != filters["holder_type"]:
+		return False
+	needle = _clean_location(filters.get("location"))
+	if not needle:
+		return True
+	if cint(filters.get("location_exact")):
+		return location == needle
+	return needle.lower() in f"{holder_type}: {location}".lower()
 
 
 def _location_display(holder_type, location):
@@ -100,14 +120,16 @@ def _sync_asset_bin_from_purchase_receipt(doc, item, asset, qty):
 @frappe.whitelist()
 def get_dashboard_data(filters=None):
 	filters = _filters(filters)
+	# Balances are current stock, so the date range only applies to movements.
 	bin_rows = get_asset_bin_rows(filters)
-	total_rows = get_asset_bin_rows({"asset": filters.get("asset")} if filters.get("asset") else {})
 	movements = get_movement_history(filters)
+	warehouse_qty = sum(flt(row.get("qty")) for row in bin_rows if row.get("holder_type") == "Warehouse")
+	department_qty = sum(flt(row.get("qty")) for row in bin_rows if row.get("holder_type") == "Department")
 
 	return {
-		"total_asset_qty": sum(flt(row.get("qty")) for row in total_rows),
-		"warehouse_qty": sum(flt(row.get("qty")) for row in bin_rows if row.get("holder_type") == "Warehouse"),
-		"department_qty": sum(flt(row.get("qty")) for row in bin_rows if row.get("holder_type") == "Department"),
+		"total_asset_qty": warehouse_qty + department_qty,
+		"warehouse_qty": warehouse_qty,
+		"department_qty": department_qty,
 		"total_asset_value": sum(flt(row.get("amount")) for row in bin_rows),
 		"asset_bin_rows": bin_rows[:8],
 		"latest_movements": movements[:6],
@@ -141,43 +163,49 @@ def get_filter_options(holder_type=None):
 @frappe.whitelist()
 def get_asset_bin_rows(filters=None):
 	filters = _filters(filters)
-	query_filters = [["disabled", "=", 0]]
+	# No date filter here: an Asset Bin is a current balance, not a dated transaction.
+	conditions = ["disabled = 0"]
+	values = {}
+	if not cint(filters.get("include_zero")):
+		conditions.append("qty > 0")
 	if filters.get("company"):
-		query_filters.append(["company", "=", filters["company"]])
+		conditions.append("company = %(company)s")
+		values["company"] = filters["company"]
 	if filters.get("asset"):
-		query_filters.append(["asset", "=", filters["asset"]])
+		conditions.append("asset = %(asset)s")
+		values["asset"] = filters["asset"]
+	elif (filters.get("asset_txt") or "").strip():
+		values["asset_like"] = f"%{filters['asset_txt'].strip()}%"
+		conditions.append("(asset like %(asset_like)s or asset_name like %(asset_like)s)")
 	if filters.get("holder_type"):
-		query_filters.append(["holder_type", "=", filters["holder_type"]])
-	query_filters += _date_filters(filters)
+		conditions.append("holder_type = %(holder_type)s")
+		values["holder_type"] = filters["holder_type"]
+	location = _clean_location(filters.get("location"))
+	if location:
+		if cint(filters.get("location_exact")):
+			values["location"] = location
+			conditions.append(
+				"((holder_type = 'Warehouse' and warehouse = %(location)s)"
+				" or (holder_type = 'Department' and department = %(location)s))"
+			)
+		else:
+			values["location_like"] = f"%{location}%"
+			conditions.append("location_display like %(location_like)s")
 
-	rows = frappe.get_all(
-		"Asset Bin",
-		filters=query_filters,
-		fields=[
-			"name",
-			"company",
-			"asset",
-			"asset_name",
-			"holder_type",
-			"warehouse",
-			"department",
-			"location_display",
-			"qty",
-			"rate",
-			"amount",
-			"source_type",
-			"source_id",
-			"posting_date",
-		],
-		order_by="posting_date desc, creation desc",
-		limit_page_length=300,
+	rows = frappe.db.sql(
+		f"""
+		select name, company, asset, asset_name, holder_type, warehouse, department, location_display,
+			qty, rate, amount, source_type, source_id, posting_date
+		from `tabAsset Bin`
+		where {" and ".join(conditions)}
+		order by posting_date desc, creation desc
+		""",
+		values,
+		as_dict=True,
 	)
 
-	location = (filters.get("location") or "").strip().lower()
 	out = []
 	for row in rows:
-		if location and location not in (row.location_display or "").lower():
-			continue
 		out.append(
 			{
 				"name": row.name,
@@ -280,37 +308,60 @@ def search_asset_bins(txt="", company=None, limit=20):
 @frappe.whitelist()
 def get_movement_history(filters=None):
 	filters = _filters(filters)
-	query_filters = [["docstatus", "=", 1]]
+	conditions = ["docstatus = 1"]
+	values = {}
+	if filters.get("company"):
+		conditions.append("company = %(company)s")
+		values["company"] = filters["company"]
 	if filters.get("asset"):
-		query_filters.append(["asset_name", "=", filters["asset"]])
-	query_filters += _date_filters(filters)
+		conditions.append("asset_name = %(asset)s")
+		values["asset"] = filters["asset"]
+	elif (filters.get("asset_txt") or "").strip():
+		asset_ids = _asset_ids_matching(filters["asset_txt"].strip())
+		if not asset_ids:
+			return []
+		conditions.append("asset_name in %(asset_ids)s")
+		values["asset_ids"] = tuple(asset_ids)
+	if filters.get("from_date"):
+		conditions.append("posting_date >= %(from_date)s")
+		values["from_date"] = filters["from_date"]
+	if filters.get("to_date"):
+		conditions.append("posting_date <= %(to_date)s")
+		values["to_date"] = filters["to_date"]
 
-	rows = frappe.get_all(
-		"Move Asset",
-		filters=query_filters,
-		fields=[
-			"name",
-			"posting_date",
-			"asset_name",
-			"company",
-			"from_holder_type",
-			"from_warehouse",
-			"from_department",
-			"to_holder_type",
-			"to_warehouse",
-			"to_department",
-			"move_qty",
-			"rate",
-			"move_qty_value",
-			"purchase_receipt",
-			"remarks",
-			"owner",
-			"modified_by",
-			"modified",
-			"docstatus",
-		],
-		order_by="posting_date desc, modified desc",
-		limit_page_length=300,
+	from_loc = "if(from_holder_type = 'Warehouse', from_warehouse, from_department)"
+	to_loc = "if(to_holder_type = 'Warehouse', to_warehouse, to_department)"
+	holder_type = filters.get("holder_type")
+	location = _clean_location(filters.get("location"))
+	if location:
+		exact = cint(filters.get("location_exact"))
+		values["location"] = location if exact else f"%{location}%"
+		if exact:
+			from_match = f"{from_loc} = %(location)s"
+			to_match = f"{to_loc} = %(location)s"
+		else:
+			from_match = f"concat(from_holder_type, ': ', {from_loc}) like %(location)s"
+			to_match = f"concat(to_holder_type, ': ', {to_loc}) like %(location)s"
+		if holder_type:
+			values["holder_type"] = holder_type
+			from_match = f"(from_holder_type = %(holder_type)s and {from_match})"
+			to_match = f"(to_holder_type = %(holder_type)s and {to_match})"
+		conditions.append(f"({from_match} or {to_match})")
+	elif holder_type:
+		values["holder_type"] = holder_type
+		conditions.append("(from_holder_type = %(holder_type)s or to_holder_type = %(holder_type)s)")
+
+	rows = frappe.db.sql(
+		f"""
+		select name, posting_date, asset_name, company, from_holder_type, from_warehouse, from_department,
+			to_holder_type, to_warehouse, to_department, move_qty, rate, move_qty_value, purchase_receipt,
+			remarks, owner, modified_by, modified, docstatus
+		from `tabMove Asset`
+		where {" and ".join(conditions)}
+		order by posting_date desc, modified desc
+		""",
+		values,
+		as_dict=True,
 	)
 
 	out = []
@@ -323,12 +374,6 @@ def get_movement_history(filters=None):
 			row.to_holder_type,
 			row.to_warehouse if row.to_holder_type == "Warehouse" else row.to_department,
 		)
-		if filters.get("holder_type") and filters["holder_type"] not in {row.from_holder_type, row.to_holder_type}:
-			continue
-		if filters.get("location"):
-			needle = filters["location"].strip().lower()
-			if needle not in from_location.lower() and needle not in to_location.lower():
-				continue
 		out.append(
 			{
 				"name": row.name,
@@ -357,6 +402,182 @@ def get_movement_history(filters=None):
 				"status": "Submitted",
 			}
 		)
+	return out
+
+
+@frappe.whitelist()
+def search_filter_assets(txt="", company=None, limit=30):
+	conditions = ["1=1"]
+	values = {"limit": cint(limit) or 30}
+	if company:
+		conditions.append("ab.company = %(company)s")
+		values["company"] = company
+	txt = (txt or "").strip()
+	if txt:
+		values["like"] = f"%{txt}%"
+		conditions.append("(ab.asset like %(like)s or ab.asset_name like %(like)s)")
+	return frappe.db.sql(
+		f"""
+		select ab.asset, max(ab.asset_name) as asset_name,
+			sum(if(ab.disabled = 0, ab.qty, 0)) as qty,
+			sum(if(ab.disabled = 0 and ab.qty > 0, 1, 0)) as locations
+		from `tabAsset Bin` ab
+		where {" and ".join(conditions)}
+		group by ab.asset
+		order by asset_name asc
+		limit %(limit)s
+		""",
+		values,
+		as_dict=True,
+	)
+
+
+def _ledger_key(company, asset, holder_type, warehouse, department):
+	return (company, asset, holder_type, warehouse if holder_type == "Warehouse" else department)
+
+
+@frappe.whitelist()
+def get_asset_ledger(filters=None):
+	"""Opening / Purchase In / Transfer In / Transfer Out / Closing per company, location and asset.
+
+	Rebuilt from Purchase Receipt items (via their Asset Bin) and submitted Move Assets. Any gap
+	against the live Asset Bin balance is folded into Opening so Closing always equals the bin.
+	"""
+	filters = _filters(filters)
+	from_date = getdate(filters["from_date"]) if filters.get("from_date") else None
+	to_date = getdate(filters["to_date"]) if filters.get("to_date") else None
+
+	events = []
+	for row in frappe.db.sql(
+		"""
+		select ab.company, ab.asset, ab.holder_type, ab.warehouse, ab.department, ab.posting_date as bin_date,
+			pri.qty as pr_qty, pr.posting_date as pr_date, pr.docstatus as pr_docstatus
+		from `tabAsset Bin` ab
+		left join `tabPurchase Receipt Item` pri on pri.name = ab.source_row_id
+		left join `tabPurchase Receipt` pr on pr.name = pri.parent
+		where ab.disabled = 0 and ab.source_type = 'Purchase Receipt' and ifnull(ab.source_row_id, '') != ''
+		""",
+		as_dict=True,
+	):
+		if row.pr_docstatus != 1:
+			continue
+		key = _ledger_key(row.company, row.asset, row.holder_type, row.warehouse, row.department)
+		events.append((row.pr_date or row.bin_date, key, "purchase_in", flt(row.pr_qty)))
+
+	for row in frappe.db.sql(
+		"""
+		select posting_date, company, asset_name as asset, from_holder_type, from_warehouse, from_department,
+			to_holder_type, to_warehouse, to_department, move_qty
+		from `tabMove Asset`
+		where docstatus = 1
+		""",
+		as_dict=True,
+	):
+		qty = flt(row.move_qty)
+		from_key = _ledger_key(row.company, row.asset, row.from_holder_type, row.from_warehouse, row.from_department)
+		to_key = _ledger_key(row.company, row.asset, row.to_holder_type, row.to_warehouse, row.to_department)
+		events.append((row.posting_date, from_key, "transfer_out", qty))
+		events.append((row.posting_date, to_key, "transfer_in", qty))
+
+	current = defaultdict(float)
+	amount_by_asset = defaultdict(float)
+	qty_by_asset = defaultdict(float)
+	rate_by_asset = {}
+	for row in frappe.db.sql(
+		"""
+		select company, asset, holder_type, warehouse, department, qty, rate, amount
+		from `tabAsset Bin` where disabled = 0
+		""",
+		as_dict=True,
+	):
+		current[_ledger_key(row.company, row.asset, row.holder_type, row.warehouse, row.department)] += flt(row.qty)
+		asset_key = (row.company, row.asset)
+		amount_by_asset[asset_key] += flt(row.amount)
+		qty_by_asset[asset_key] += flt(row.qty)
+		rate_by_asset[asset_key] = max(rate_by_asset.get(asset_key, 0), flt(row.rate))
+
+	rebuilt = defaultdict(float)
+	for _date, key, kind, qty in events:
+		rebuilt[key] += -qty if kind == "transfer_out" else qty
+	for key in set(current) | set(rebuilt):
+		gap = flt(current.get(key, 0) - rebuilt.get(key, 0), 6)
+		if gap:
+			events.append((None, key, "adjustment", gap))
+
+	asset_ids = None
+	if not filters.get("asset") and (filters.get("asset_txt") or "").strip():
+		asset_ids = set(_asset_ids_matching(filters["asset_txt"].strip()))
+
+	def key_allowed(key):
+		company, asset, holder_type, location = key
+		if filters.get("company") and company != filters["company"]:
+			return False
+		if filters.get("asset") and asset != filters["asset"]:
+			return False
+		if asset_ids is not None and asset not in asset_ids:
+			return False
+		return _location_matches(filters, holder_type, location)
+
+	ledger = {}
+	for event_date, key, kind, qty in events:
+		if not key_allowed(key):
+			continue
+		if event_date and to_date and getdate(event_date) > to_date:
+			continue
+		row = ledger.setdefault(
+			key, {"opening": 0.0, "purchase_in": 0.0, "transfer_in": 0.0, "transfer_out": 0.0}
+		)
+		signed = -qty if kind == "transfer_out" else qty
+		if kind == "adjustment" or (from_date and getdate(event_date) < from_date):
+			row["opening"] += signed
+		else:
+			row[kind] += qty
+
+	titles = dict(
+		frappe.db.sql(
+			"select name, asset_name from `tabAsset` where name in %(names)s",
+			{"names": tuple({key[1] for key in ledger}) or ("",)},
+		)
+	)
+	include_zero = cint(filters.get("include_zero"))
+	out = []
+	for key, row in ledger.items():
+		company, asset, holder_type, location = key
+		closing = row["opening"] + row["purchase_in"] + row["transfer_in"] - row["transfer_out"]
+		if not include_zero and not any(flt(v, 6) for v in (*row.values(), closing)):
+			continue
+		asset_key = (company, asset)
+		rate = (
+			amount_by_asset[asset_key] / qty_by_asset[asset_key]
+			if qty_by_asset.get(asset_key)
+			else rate_by_asset.get(asset_key, 0)
+		)
+		out.append(
+			{
+				"company": company,
+				"asset": asset,
+				"asset_name": titles.get(asset) or asset,
+				"holder_type": holder_type,
+				"location": location,
+				"location_display": _location_display(holder_type, location),
+				"opening": flt(row["opening"], 6),
+				"purchase_in": flt(row["purchase_in"], 6),
+				"transfer_in": flt(row["transfer_in"], 6),
+				"transfer_out": flt(row["transfer_out"], 6),
+				"closing": flt(closing, 6),
+				"rate": flt(rate),
+				"closing_value": flt(closing * rate),
+			}
+		)
+
+	out.sort(
+		key=lambda r: (
+			r["company"] or "",
+			0 if r["holder_type"] == "Warehouse" else 1,
+			r["location"] or "",
+			(r["asset_name"] or "").lower(),
+		)
+	)
 	return out
 
 

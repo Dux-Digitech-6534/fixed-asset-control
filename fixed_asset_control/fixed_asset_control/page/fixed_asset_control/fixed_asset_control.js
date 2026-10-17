@@ -6,6 +6,7 @@
 		move: { title: "Move Asset" },
 		bin: { title: "Asset Bin" },
 		history: { title: "Movement History" },
+		ledger: { title: "Asset Ledger" },
 	};
 
 	frappe.pages[PAGE_ROUTE] = frappe.pages[PAGE_ROUTE] || {};
@@ -37,7 +38,7 @@
 				url.searchParams.delete("fac_screen");
 				window.history.replaceState({}, "", url.toString());
 			}
-			return ["dashboard", "move", "bin", "history"].includes(screen) ? screen : "dashboard";
+			return Object.keys(SCREENS).includes(screen) ? screen : "dashboard";
 		}
 
 		make_shell() {
@@ -73,6 +74,7 @@
 							<button type="button" data-screen="move"><span class="fac-nav-icon">MV</span><span>Move Asset</span></button>
 							<button type="button" data-screen="bin"><span class="fac-nav-icon">AB</span><span>Asset Bin</span></button>
 							<button type="button" data-screen="history"><span class="fac-nav-icon">MH</span><span>Movement History</span></button>
+							<button type="button" data-screen="ledger"><span class="fac-nav-icon">AL</span><span>Asset Ledger</span></button>
 						</nav>
 						<div class="fac-sidebar-footer">
 							<span>Powered by</span>
@@ -157,6 +159,7 @@
 			if (this.current_screen === "move") this.render_move();
 			if (this.current_screen === "bin") this.render_bin();
 			if (this.current_screen === "history") this.render_history();
+			if (this.current_screen === "ledger") this.render_ledger();
 		}
 
 		header(title, subtitle, show_button = true) {
@@ -187,7 +190,7 @@
 						<table class="fac-table"><thead><tr><th>Asset</th><th>Location</th><th>Qty</th><th>Source</th><th>Rate</th><th>Amount</th></tr></thead><tbody data-bin-rows></tbody></table>
 					</section>
 					<section class="fac-card">
-						<div class="fac-card-header"><h2>Latest Movements</h2><p>Recent location changes.</p></div>
+						<div class="fac-card-header"><h2>Latest Movements</h2><p>Location changes in the selected date range.</p></div>
 						<table class="fac-table"><thead><tr><th>Asset</th><th>Qty</th><th>To</th></tr></thead><tbody data-move-rows></tbody></table>
 					</section>
 				</div>
@@ -241,11 +244,12 @@
 				</section>
 			`);
 			this.bind_header_actions();
-			this.make_filters(() => this.load_bin(), false, { dynamic_location: true });
+			this.make_filters(() => this.load_bin(), false, { dynamic_location: true, hide_dates: true });
 			if (this.prefill && this.prefill.filters) {
 				this.apply_filters(this.prefill.filters);
 			}
-			this.$main.on("click", "[data-move-row]", (event) => {
+			this.$main.off(".facBin");
+			this.$main.on("click.facBin", "[data-move-row]", (event) => {
 				const row = this.bin_rows[Number($(event.currentTarget).data("move-row"))];
 				this.show_screen("move", {
 					asset_bin: row.name,
@@ -282,7 +286,147 @@
 			this.bind_header_actions();
 			this.bind_history_actions();
 			this.make_filters(() => this.load_history(), true, { dynamic_location: true });
+			if (this.prefill && this.prefill.filters) {
+				this.apply_filters(this.prefill.filters);
+			}
 			this.load_history();
+		}
+
+		render_ledger() {
+			this.ledger_rows = [];
+			this.$main.html(`
+				${this.header("Asset Ledger", "Company-wise opening, purchase, transfer and closing quantity for every warehouse and department.", false)}
+				<section class="fac-card">
+					<div class="fac-card-header fac-row">
+						<div><h2>Asset Ledger</h2><p>Opening + Purchase In + Transfer In &minus; Transfer Out = Closing, for the selected period.</p></div>
+						<div class="fac-history-tools">
+							<span class="fac-history-count" data-ledger-count>0 Rows</span>
+							<button type="button" class="fac-row-btn" data-ledger-export>Excel</button>
+							<button type="button" class="fac-row-btn" data-ledger-print>Print</button>
+						</div>
+					</div>
+					<div class="fac-filter-box" data-filter-box></div>
+					<table class="fac-table fac-ledger-table">
+						<thead><tr><th>Company</th><th>Location</th><th>Asset</th><th class="fac-num">Opening</th><th class="fac-num">Purchase In</th><th class="fac-num">Transfer In</th><th class="fac-num">Transfer Out</th><th class="fac-num">Closing</th><th class="fac-num">Rate</th><th class="fac-num">Closing Value</th></tr></thead>
+						<tbody data-ledger-rows></tbody>
+					</table>
+				</section>
+			`);
+			this.$main.off(".facLedger");
+			this.$main.on("click.facLedger", "[data-ledger-export]", () => this.export_ledger());
+			this.$main.on("click.facLedger", "[data-ledger-print]", () => this.print_ledger());
+			this.make_filters(() => this.load_ledger(), false, { dynamic_location: true, default_dates: true });
+			this.load_ledger();
+		}
+
+		load_ledger() {
+			this.call("get_asset_ledger", { filters: this.filters() }).then((rows) => {
+				this.ledger_rows = Array.isArray(rows) ? rows : [];
+				this.$main.find("[data-ledger-count]").text(`${this.ledger_rows.length} Rows`);
+				this.$main.find("[data-ledger-rows]").html(this.ledger_table_rows() || this.empty(10));
+			});
+		}
+
+		ledger_totals(rows) {
+			const keys = ["opening", "purchase_in", "transfer_in", "transfer_out", "closing", "closing_value"];
+			const total = {};
+			keys.forEach((key) => {
+				total[key] = rows.reduce((sum, row) => sum + this.num(row[key]), 0);
+			});
+			return total;
+		}
+
+		ledger_table_rows() {
+			const rows = this.ledger_rows || [];
+			if (!rows.length) return "";
+			const qty = (value) => this.esc(this.num(value).toLocaleString(undefined, { maximumFractionDigits: 3 }));
+			const line = (cells, cls = "") => `<tr class="${cls}">${cells}</tr>`;
+			const total_cells = (label, total) => `
+				<td colspan="3"><strong>${this.esc(label)}</strong></td>
+				<td class="fac-num">${qty(total.opening)}</td><td class="fac-num">${qty(total.purchase_in)}</td>
+				<td class="fac-num">${qty(total.transfer_in)}</td><td class="fac-num">${qty(total.transfer_out)}</td>
+				<td class="fac-num">${qty(total.closing)}</td><td></td><td class="fac-num">${this.money(total.closing_value)}</td>`;
+			let html = "";
+			let company_rows = [];
+			const flush_company = () => {
+				if (!company_rows.length) return;
+				html += line(total_cells(`${company_rows[0].company || "-"} Total`, this.ledger_totals(company_rows)), "fac-subtotal");
+				company_rows = [];
+			};
+			rows.forEach((row, index) => {
+				if (company_rows.length && company_rows[0].company !== row.company) flush_company();
+				company_rows.push(row);
+				html += line(`
+					<td>${this.esc(row.company)}</td>
+					<td>${this.esc(row.location_display)}</td>
+					<td><strong>${this.esc(row.asset_name || row.asset)}</strong><div class="fac-small">${this.esc(row.asset)}</div></td>
+					<td class="fac-num">${qty(row.opening)}</td>
+					<td class="fac-num">${qty(row.purchase_in)}</td>
+					<td class="fac-num">${qty(row.transfer_in)}</td>
+					<td class="fac-num">${qty(row.transfer_out)}</td>
+					<td class="fac-num"><strong>${qty(row.closing)}</strong></td>
+					<td class="fac-num">${this.money(row.rate)}</td>
+					<td class="fac-num">${this.money(row.closing_value)}</td>
+				`);
+			});
+			flush_company();
+			html += line(total_cells("Grand Total", this.ledger_totals(rows)), "fac-grandtotal");
+			return html;
+		}
+
+		export_ledger() {
+			const rows = this.ledger_rows || [];
+			if (!rows.length) {
+				frappe.show_alert({ message: "No ledger rows to export.", indicator: "orange" });
+				return;
+			}
+			const f = this.filters();
+			const headers = ["Company", "Holder Type", "Location", "Asset", "Asset Name", "Opening", "Purchase In", "Transfer In", "Transfer Out", "Closing", "Rate", "Closing Value"];
+			const body = rows.map((row) => [
+				row.company || "",
+				row.holder_type || "",
+				row.location || "",
+				row.asset || "",
+				row.asset_name || "",
+				this.num(row.opening),
+				this.num(row.purchase_in),
+				this.num(row.transfer_in),
+				this.num(row.transfer_out),
+				this.num(row.closing),
+				this.num(row.rate),
+				this.num(row.closing_value),
+			]);
+			const csv = [headers, ...body].map((cells) => cells.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+			const period = `${f.from_date || "start"}_to_${f.to_date || frappe.datetime.now_date()}`;
+			this.download_file(`asset-ledger-${period}.csv`, "text/csv;charset=utf-8", "﻿" + csv);
+		}
+
+		print_ledger() {
+			const rows = this.ledger_rows || [];
+			if (!rows.length) {
+				frappe.show_alert({ message: "No ledger rows to print.", indicator: "orange" });
+				return;
+			}
+			const f = this.filters();
+			const period = `${f.from_date ? this.date(f.from_date) : "Start"} to ${this.date(f.to_date) || this.date(frappe.datetime.get_today())}`;
+			const html = `<!doctype html><html><head><title>Asset Ledger</title><style>
+				body{font-family:Arial,sans-serif;color:#000;margin:24px;font-size:11px}h1{font-size:16px;margin:0 0 4px;text-align:center}.meta{text-align:center;margin-bottom:14px;color:#333}
+				table{width:100%;border-collapse:collapse}th,td{border:1px solid #bdbdbd;padding:6px 7px}th{background:#f0f0f0;font-size:10px;text-transform:uppercase}
+				.fac-num{text-align:right}.fac-small{color:#555;font-size:9px}.fac-subtotal td{background:#f7f7f7;font-weight:700}.fac-grandtotal td{background:#e9e9e9;font-weight:700}
+				.print-actions{text-align:right;margin-bottom:10px}@media print{.print-actions{display:none}}
+			</style></head><body><div class="print-actions"><button onclick="window.print()">Print</button></div>
+				<h1>Asset Ledger</h1><div class="meta">Period: ${this.esc(period)}${f.company ? ` | Company: ${this.esc(f.company)}` : ""}</div>
+				<table><thead><tr><th>Company</th><th>Location</th><th>Asset</th><th>Opening</th><th>Purchase In</th><th>Transfer In</th><th>Transfer Out</th><th>Closing</th><th>Rate</th><th>Closing Value</th></tr></thead>
+				<tbody>${this.ledger_table_rows(false)}</tbody></table>
+				<script>setTimeout(function(){window.print()},300)<\/script></body></html>`;
+			const print_window = window.open("", "_blank");
+			if (!print_window) {
+				frappe.show_alert({ message: "Please allow pop-ups to print the Asset Ledger.", indicator: "orange" });
+				return;
+			}
+			print_window.document.open();
+			print_window.document.write(html);
+			print_window.document.close();
 		}
 
 		render_move() {
@@ -343,27 +487,46 @@
 
 		make_filters(on_change, history_mode, options = {}) {
 			const box = this.$main.find("[data-filter-box]");
+			this.pending_filters = null;
 			const date_defaults = options.default_dates ? this.default_date_range() : {};
+			// Date controls settle asynchronously; the first load falls back to these defaults.
+			this.initial_date_defaults = date_defaults;
+			setTimeout(() => {
+				this.initial_date_defaults = null;
+			}, 300);
 			this.selected_filter_asset = "";
+			this.selected_filter_location = "";
 			const fire_change = () => {
 				if (!this.suppress_filter_change) on_change();
 			};
 			const holder_change = () => {
 				if (this.suppress_filter_change) return;
 				if (options.dynamic_location) {
+					this.selected_filter_location = "";
 					this.set_control_value(this.filter_controls.location, "");
 					this.load_location_options();
 				}
 				on_change();
 			};
+			const asset_change = () => {
+				// Picking from the dropdown reloads on its own; this covers typed text + blur/enter.
+				if (!this.selected_filter_asset) fire_change();
+			};
+			const location_change = () => {
+				if (this.filter_controls.location.get_value() !== this.selected_filter_location) this.selected_filter_location = "";
+				fire_change();
+			};
 			const location_df = { label: history_mode ? "From / To Location" : "Location", fieldtype: "Data", placeholder: "All Locations" };
 			this.filter_controls = {
-				asset: this.control(box, "asset", { label: "Asset", fieldtype: "Data", placeholder: "All Assets" }, () => {}),
+				company: this.control(box, "company", { label: "Company", fieldtype: "Link", options: "Company", placeholder: "All Companies" }, fire_change),
+				asset: this.control(box, "asset", { label: "Asset", fieldtype: "Data", placeholder: "All Assets" }, asset_change),
 				holder_type: this.control(box, "holder_type", { label: "Warehouse / Department", fieldtype: "Select", options: "All\nWarehouse\nDepartment", default: "All" }, holder_change),
-				location: this.control(box, "location", location_df, fire_change),
-				from_date: this.control(box, "from_date", { label: "From Date", fieldtype: "Date", default: date_defaults.from_date || "" }, fire_change),
-				to_date: this.control(box, "to_date", { label: "To Date", fieldtype: "Date", default: date_defaults.to_date || "" }, fire_change),
+				location: this.control(box, "location", location_df, location_change),
 			};
+			if (!options.hide_dates) {
+				this.filter_controls.from_date = this.control(box, "from_date", { label: "From Date", fieldtype: "Date", default: date_defaults.from_date || "" }, fire_change);
+				this.filter_controls.to_date = this.control(box, "to_date", { label: "To Date", fieldtype: "Date", default: date_defaults.to_date || "" }, fire_change);
+			}
 			this.setup_filter_asset_search(fire_change);
 			this.setup_filter_location_search(fire_change);
 			this.set_control_value(this.filter_controls.holder_type, "All");
@@ -377,12 +540,28 @@
 			$('<button type="button" class="fac-clear">Clear</button>').appendTo(box).on("click", () => {
 				this.suppress_filter_change = true;
 				this.selected_filter_asset = "";
+				this.selected_filter_location = "";
+				this.set_control_value(this.filter_controls.company, "");
 				this.set_control_value(this.filter_controls.asset, "");
 				this.set_control_value(this.filter_controls.holder_type, "All");
 				this.set_control_value(this.filter_controls.location, "");
 				this.set_control_value(this.filter_controls.from_date, date_defaults.from_date || "");
 				this.set_control_value(this.filter_controls.to_date, date_defaults.to_date || "");
-				this.suppress_filter_change = false;
+				// Frappe controls settle asynchronously: keep change callbacks quiet and load with the cleared values.
+				this.pending_filters = {
+					company: "",
+					asset: "",
+					asset_txt: "",
+					holder_type: "",
+					location: "",
+					location_exact: 0,
+					from_date: this.filter_controls.from_date ? date_defaults.from_date || "" : "",
+					to_date: this.filter_controls.to_date ? date_defaults.to_date || "" : "",
+				};
+				setTimeout(() => {
+					this.suppress_filter_change = false;
+					this.pending_filters = null;
+				}, 300);
 				this.load_location_options();
 				on_change();
 			});
@@ -554,22 +733,51 @@
 		}
 
 		apply_filters(filters) {
-			this.selected_filter_asset = filters && filters.asset ? filters.asset : "";
-			Object.keys(filters || {}).forEach((fieldname) => {
-				if (this.filter_controls[fieldname]) this.filter_controls[fieldname].set_value(filters[fieldname]);
+			filters = filters || {};
+			this.suppress_filter_change = true;
+			this.selected_filter_asset = filters.asset || "";
+			if (this.filter_controls.company && filters.company) this.set_control_value(this.filter_controls.company, filters.company);
+			if (filters.asset) this.set_control_value(this.filter_controls.asset, filters.asset_label || filters.asset);
+			if (filters.holder_type) this.set_control_value(this.filter_controls.holder_type, filters.holder_type);
+			if (filters.location) {
+				const label = filters.holder_type ? `${filters.holder_type}: ${filters.location}` : filters.location;
+				this.selected_filter_location = label;
+				this.set_control_value(this.filter_controls.location, label);
+			}
+			["from_date", "to_date"].forEach((fieldname) => {
+				if (this.filter_controls[fieldname] && fieldname in filters) this.set_control_value(this.filter_controls[fieldname], filters[fieldname] || "");
 			});
+			// Control values settle asynchronously, so the first load uses the requested filters directly.
+			this.pending_filters = {
+				company: filters.company || "",
+				asset: filters.asset || "",
+				asset_txt: "",
+				holder_type: filters.holder_type || "",
+				location: filters.location || "",
+				location_exact: filters.location ? 1 : 0,
+				...(this.filter_controls.from_date ? { from_date: filters.from_date || "", to_date: filters.to_date || "" } : {}),
+			};
+			setTimeout(() => {
+				this.suppress_filter_change = false;
+				this.pending_filters = null;
+			}, 300);
 		}
 
 		filters() {
-			const holder = this.filter_controls.holder_type.get_value();
-			const location = this.filter_controls.location.get_value();
-			const date_defaults = this.current_screen === "dashboard" ? this.default_date_range() : {};
+			if (this.pending_filters) return { ...this.pending_filters };
+			const value = (fieldname) => (this.filter_controls[fieldname] ? this.filter_controls[fieldname].get_value() || "" : "");
+			const holder = value("holder_type");
+			const location = value("location");
+			const asset_text = (this.filter_controls.asset && this.filter_controls.asset.$input ? this.filter_controls.asset.$input.val() : value("asset")) || "";
 			return {
+				company: value("company"),
 				asset: this.selected_filter_asset || "",
+				asset_txt: this.selected_filter_asset ? "" : asset_text.trim(),
 				holder_type: holder === "All" ? "" : holder,
 				location: location === "All Locations" ? "" : location.replace(/^(Warehouse|Department):\s*/, ""),
-				from_date: this.filter_controls.from_date.get_value() || date_defaults.from_date || "",
-				to_date: this.filter_controls.to_date.get_value() || date_defaults.to_date || "",
+				location_exact: location && location === this.selected_filter_location ? 1 : 0,
+				from_date: value("from_date") || (this.initial_date_defaults || {}).from_date || "",
+				to_date: value("to_date") || (this.initial_date_defaults || {}).to_date || "",
 			};
 		}
 
@@ -783,7 +991,7 @@
 			if (!this.selected_asset || !holder_type) return;
 			const $holder = input.closest(".frappe-control");
 			$holder.find(".fac-location-options").remove();
-			this.call_asset_bin_search({ txt: "", company: this.form.company.get_value(), limit: 200 }).then((rows) => {
+			this.call_asset_bin_search({ txt: "", company: this.form.company.get_value(), asset: this.selected_asset, limit: 500 }).then((rows) => {
 				const needle = (txt || "").trim().toLowerCase();
 				const locations = (rows || [])
 					.filter((row) => row.asset === this.selected_asset && row.holder_type === holder_type && this.num(row.qty) > 0)
@@ -866,6 +1074,7 @@
 			let timer = null;
 			input.attr("autocomplete", "off");
 			input.on("input", () => {
+				this.selected_filter_location = "";
 				clearTimeout(timer);
 				timer = setTimeout(() => this.render_filter_location_options(input.val() || "", on_change), 120);
 			});
@@ -888,7 +1097,9 @@
 			const $options = $(`<div class="fac-location-options">${html}</div>`);
 			$options.on("mousedown", ".fac-location-option[data-location]", (event) => {
 				event.preventDefault();
-				this.set_control_value(this.filter_controls.location, $(event.currentTarget).data("location"));
+				const label = $(event.currentTarget).data("location");
+				this.selected_filter_location = label;
+				this.set_control_value(this.filter_controls.location, label);
 				$holder.find(".fac-location-options").remove();
 				if (!this.suppress_filter_change) on_change();
 			});
@@ -896,8 +1107,8 @@
 		}
 
 		search_filter_assets(txt, on_change) {
-			const company = this.form && this.form.company ? this.form.company.get_value() : "";
-			this.call_asset_bin_search({ txt, company, limit: 20 }).then((rows) => this.render_filter_asset_options(rows || [], on_change));
+			const company = this.filter_controls.company ? this.filter_controls.company.get_value() : "";
+			this.call("search_filter_assets", { txt, company, limit: 30 }).then((rows) => this.render_filter_asset_options(Array.isArray(rows) ? rows : [], on_change));
 		}
 
 		render_filter_asset_options(rows, on_change) {
@@ -914,10 +1125,10 @@
 			});
 			const html = assets.map((row) => `
 				<button type="button" class="fac-asset-option" data-asset="${this.esc(row.asset)}">
-					<strong>${this.esc(row.asset_name)}</strong>
-					<span>${this.esc(row.location_display || "-")} | Qty: ${this.esc(row.qty)}${row.source_id ? ` | ${this.esc(row.source_id)}` : ""}</span>
+					<strong>${this.esc(row.asset_name || row.asset)}</strong>
+					<span>${this.esc(row.asset)} | Total Qty: ${this.esc(this.num(row.qty))} | ${this.esc(this.num(row.locations))} location(s)</span>
 				</button>
-			`).join("") || `<div class="fac-asset-option fac-empty-option">No Asset Bin balance found.</div>`;
+			`).join("") || `<div class="fac-asset-option fac-empty-option">No asset found.</div>`;
 			const $options = $(`<div class="fac-asset-options">${html}</div>`);
 			$options.on("mousedown", ".fac-asset-option[data-asset]", (event) => {
 				event.preventDefault();
@@ -1276,7 +1487,8 @@
 				.fac-main{flex:1;min-width:0;width:calc(100vw - 260px);padding:32px;overflow:auto}.fac-page-title{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px}.fac-page-title h1{font-size:30px;margin:0 0 8px;font-weight:650;letter-spacing:0}.fac-page-title p{margin:0;color:#53627c;font-size:15px}.fac-greeting{margin:-4px 0 18px;color:#475569;font-size:15px;font-weight:500}.fac-hero{display:flex;align-items:center;justify-content:space-between;gap:22px;background:linear-gradient(135deg,#101827 0%,#17233a 100%);color:#fff;border-radius:18px;padding:28px 30px;margin-bottom:22px;box-shadow:0 16px 34px rgba(15,23,42,.12)}.fac-hero-date{color:#f59e0b;text-transform:uppercase;letter-spacing:.14em;font-size:12px;font-weight:700;margin-bottom:10px}.fac-hero h1{font-size:29px;line-height:1.2;margin:0 0 8px;font-weight:650;color:#fff!important}.fac-hero p{margin:0;color:#dbeafe!important;font-size:15px}.fac-hero .fac-primary{box-shadow:none;white-space:nowrap}
 				.fac-primary{background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%);color:#fff;border:0;border-radius:12px;padding:12px 22px;font-weight:650;box-shadow:0 14px 28px rgba(245,158,11,.22);transition:transform .16s ease,box-shadow .16s ease}.fac-primary:hover{transform:translateY(-1px);box-shadow:0 18px 34px rgba(245,158,11,.28)}.fac-card{background:rgba(255,255,255,.94);border:1px solid #e8e2d8;border-radius:18px;padding:22px;box-shadow:0 14px 34px rgba(15,23,42,.06);backdrop-filter:saturate(130%) blur(4px);overflow-x:auto}
 				.fac-card-header h2{font-size:20px;margin:0 0 5px;font-weight:650}.fac-card-header p{margin:0 0 18px;color:#53627c}.fac-row{display:flex;justify-content:space-between;align-items:center;gap:12px}.fac-toolbar,.fac-history-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.fac-history-count{font-size:13px;font-weight:800;color:#475569;background:#f8fafc;border:1px solid var(--fac-line);border-radius:999px;padding:8px 12px}
-				.fac-filter-box{display:grid;width:100%;grid-template-columns:minmax(170px,1.25fr) minmax(150px,1fr) minmax(170px,1.2fr) minmax(150px,1fr) minmax(150px,1fr) minmax(92px,auto);gap:12px;align-items:end;border:1px solid #e8e2d8;border-radius:18px;padding:16px;background:rgba(255,255,255,.9);box-shadow:0 12px 28px rgba(15,23,42,.05);margin-bottom:18px}.fac-filter .form-group{margin-bottom:0}.fac-filter .control-label,.fac-form-grid .control-label{font-size:11px;font-weight:650;color:#53627c;text-transform:none}.fac-filter .form-control,.fac-form-grid .form-control{border-radius:12px;height:44px;border:1px solid #e5ded4;background:#fff}
+				.fac-num{text-align:right!important;white-space:nowrap}.fac-ledger-table{min-width:1100px}.fac-ledger-table .fac-subtotal td{background:#fff7ed;font-weight:700;border-bottom:1px solid #f3c98f}.fac-ledger-table .fac-grandtotal td{background:#101827;color:#fff;font-weight:700}.fac-ledger-table .fac-grandtotal td .fac-small{color:#cbd5e1}.fac-ledger-table tbody tr.fac-grandtotal:hover td{background:#101827}.fac-ledger-table tbody tr.fac-subtotal:hover td{background:#fff7ed}
+				.fac-filter-box{display:grid;width:100%;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;align-items:end;border:1px solid #e8e2d8;border-radius:18px;padding:16px;background:rgba(255,255,255,.9);box-shadow:0 12px 28px rgba(15,23,42,.05);margin-bottom:18px}.fac-filter .form-group{margin-bottom:0}.fac-filter .control-label,.fac-form-grid .control-label{font-size:11px;font-weight:650;color:#53627c;text-transform:none}.fac-filter .form-control,.fac-form-grid .form-control{border-radius:12px;height:44px;border:1px solid #e5ded4;background:#fff}
 				.fac-hidden{display:none!important}.fac-clear{height:44px;border:1px solid #e8e2d8;background:#fff;border-radius:12px;padding:0 18px;font-weight:650;box-shadow:0 8px 18px rgba(15,23,42,.04)}.fac-filter-box>.fac-clear{align-self:end;width:100%;min-width:82px;margin:0}.fac-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;margin-bottom:18px}.fac-metric{background:linear-gradient(180deg,#fff 0%,#f8fbff 100%);border:1px solid #e8e2d8;border-radius:18px;padding:21px;display:flex;justify-content:space-between;text-align:left;box-shadow:0 12px 28px rgba(15,23,42,.06);cursor:default}.fac-metric p{color:#53627c;font-weight:650;margin:0 0 8px}.fac-metric strong{font-size:30px;line-height:1}.fac-metric small{display:block;color:#53627c;margin-top:10px}.fac-metric span,.fac-chip{height:26px;padding:5px 12px;border-radius:999px;background:#e8f8ef;color:#047333;font-weight:650;font-size:12px}
 				.fac-grid{display:grid;width:100%;grid-template-columns:minmax(0,1.45fr) minmax(360px,1fr);gap:18px}.fac-table{width:100%;min-width:720px;border-collapse:separate;border-spacing:0}.fac-table th{font-size:12px;text-transform:uppercase;color:#53627c;background:#f8fafc;border-bottom:1px solid #e8e2d8;padding:15px 12px;position:sticky;top:0;z-index:1}.fac-table td{border-bottom:1px solid #eee7dd;padding:14px 12px;vertical-align:middle}.fac-table tbody tr{transition:background .14s ease}.fac-table tbody tr:hover{background:#f8fbff}.fac-link{font-weight:650;color:#b45309;text-decoration:none}.fac-link:hover{text-decoration:underline}.fac-source{color:#92400e;font-weight:750}.fac-status{display:inline-block;background:#dcfce7;color:#047333;border-radius:999px;padding:4px 10px;font-weight:650;font-size:12px}.fac-muted{text-align:center;color:#68758b;padding:30px!important}.fac-small{font-size:12px;color:#53627c;margin-top:3px}.fac-row-btn{border:1px solid #e8e2d8;background:#fff;border-radius:11px;padding:8px 16px;font-weight:650;box-shadow:0 8px 18px rgba(15,23,42,.04)}
 				.fac-move-layout{display:grid;grid-template-columns:minmax(0,1fr) 410px;gap:20px}.fac-section{border:1px solid #e8e2d8;border-radius:16px;padding:17px;margin-top:16px;background:linear-gradient(180deg,#fff 0%,#fbfdff 100%)}.fac-section h3{margin:0 0 14px;font-size:16px;font-weight:650;display:flex;justify-content:space-between}.fac-section h3 span{background:#fff7ed;color:#b45309;border-radius:999px;padding:4px 10px}.fac-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:13px;align-items:start}.fac-from-qty-row{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:13px;align-items:start}.fac-wide{grid-column:1/-1}.fac-read{border:0;border-radius:0;padding:0;background:transparent;min-height:0}.fac-read label,.fac-ref-box label,.fac-dark label{display:block;font-size:11px;font-weight:650;color:#53627c;margin-bottom:7px}.fac-read strong{display:flex;align-items:center;min-height:44px;border:1px solid #e5ded4;border-radius:12px;background:#fff;padding:10px 12px;font-weight:650}.fac-summary{display:flex;gap:8px;flex-wrap:wrap;border:1px dashed #94b6ff;background:#f8fbff;border-radius:14px;padding:13px;margin-top:16px}.fac-summary span{border:1px solid #e8e2d8;background:#fff;border-radius:10px;padding:8px 11px;font-weight:650}.fac-actions{display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-top:15px}.fac-ref{height:max-content;position:sticky;top:18px}.fac-ref-box{border:1px solid #adc2ff;background:#edf3ff;border-radius:14px;padding:15px;margin-bottom:12px}.fac-ref-box a{color:#92400e;text-decoration:none}.fac-ref-box a:hover{text-decoration:underline}.fac-dark{background:linear-gradient(135deg,#101827 0%,#17233a 100%);color:#fff;border-radius:16px;padding:19px;display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px;box-shadow:0 18px 30px rgba(15,23,42,.22)}.fac-dark strong{font-size:23px}.fac-note{border:1px solid #e8e2d8;background:#fff;border-radius:14px;padding:12px;font-weight:750;color:#53627c}

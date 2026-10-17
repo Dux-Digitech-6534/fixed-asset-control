@@ -44,11 +44,13 @@ def _asset_bin_option(row):
 
 
 @frappe.whitelist()
-def search_asset_bins(txt="", company=None, limit=20):
+def search_asset_bins(txt="", company=None, limit=20, asset=None):
 	txt = (txt or "").strip()
 	filters = [["disabled", "=", 0], ["qty", ">", 0]]
 	if company:
 		filters.append(["company", "=", company])
+	if asset:
+		filters.append(["asset", "=", asset])
 
 	or_filters = None
 	if txt:
